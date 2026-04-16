@@ -306,15 +306,16 @@ async function applyInserts(inserts) {
         continue;
       }
 
-      // Walk up to the containing paragraph.
+      // Walk up to the containing paragraph of the first match.
       const paragraphs = results.items[0].paragraphs;
       paragraphs.load('items');
       await context.sync();
 
       let anchorPara = paragraphs.items[paragraphs.items.length - 1];
 
-      // Load list/list-item info with explicit per-proxy loads (more reliable
-      // in Word for the Web than the slash-path shorthand).
+      // Gather formatting info about the anchor so we can diagnose and
+      // branch on list vs non-list insertion.
+      anchorPara.load('text,styleBuiltIn');
       const anchorList = anchorPara.listOrNullObject;
       const anchorItem = anchorPara.listItemOrNullObject;
       anchorList.load('id');
@@ -322,39 +323,55 @@ async function applyInserts(inserts) {
       await context.sync();
 
       const anchorInList = !anchorList.isNullObject && !anchorItem.isNullObject;
-      const listId = anchorInList ? anchorList.id    : null;
-      const level  = anchorInList ? anchorItem.level : 0;
-
-      log('info', `Anchor "${ins.after_text.substring(0, 50)}" — ` +
-        (anchorInList ? `in list id=${listId} level=${level}` : 'not in a list'));
+      const anchorStyle  = anchorPara.styleBuiltIn || '(no style)';
+      log('info',
+        `Anchor "${(anchorPara.text || '').substring(0, 50)}" — style=${anchorStyle}, ` +
+        (anchorInList ? `list id=${anchorList.id} level=${anchorItem.level}` : 'NOT in a list'));
 
       for (const newText of ins.new_paragraphs) {
         const clean = sanitizeReplacement(newText);
         if (!clean) continue;
 
-        const newPara = anchorPara.insertParagraph(clean, 'After');
-        await context.sync();
+        let newPara = null;
 
         if (anchorInList) {
-          // Check whether the new paragraph already joined the list on its
-          // own (some Word builds auto-continue lists; others don't).
-          const newItem = newPara.listItemOrNullObject;
-          newItem.load('level');
-          await context.sync();
-
-          if (newItem.isNullObject) {
-            try {
-              newPara.attachToList(listId, level);
-              await context.sync();
-              log('ok', `Attached "${clean.substring(0, 40)}" to list ${listId} level ${level}.`);
-            } catch (e) {
-              log('err', `attachToList failed for "${clean.substring(0, 40)}": ${e.message}`);
-            }
-          } else {
-            log('info', `"${clean.substring(0, 40)}" auto-joined the list at level ${newItem.level}.`);
+          // Preferred path: insert directly into the list. In Word for the
+          // Web this is the most reliable way to preserve bullet formatting.
+          try {
+            newPara = anchorList.insertParagraph(clean, 'End');
+            await context.sync();
+            log('ok', `Inserted "${clean.substring(0, 40)}" via List.insertParagraph(End).`);
+          } catch (e) {
+            log('err', `List.insertParagraph failed: ${e.message} — falling back.`);
+            newPara = null;
           }
         }
 
+        if (!newPara) {
+          // Fallback: insert after the anchor paragraph, then try to attach.
+          newPara = anchorPara.insertParagraph(clean, 'After');
+          await context.sync();
+
+          if (anchorInList) {
+            const newItem = newPara.listItemOrNullObject;
+            newItem.load('level');
+            await context.sync();
+
+            if (newItem.isNullObject) {
+              try {
+                newPara.attachToList(anchorList.id, anchorItem.level);
+                await context.sync();
+                log('ok', `Fallback attached "${clean.substring(0, 40)}" to list ${anchorList.id} L${anchorItem.level}.`);
+              } catch (e) {
+                log('err', `Fallback attachToList failed: ${e.message}`);
+              }
+            } else {
+              log('info', `"${clean.substring(0, 40)}" auto-joined the list at L${newItem.level}.`);
+            }
+          }
+        }
+
+        // Next insert goes after the one we just placed.
         anchorPara = newPara;
         inserted++;
       }
