@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>Claude Co-author</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+  <link rel="stylesheet" href="taskpane.css" />
+</head>
+<body>
+  <main id="app">
+    <header>
+      <h1>Claude Co-author</h1>
+      <p class="tagline">@claude comments &rarr; AI edits &amp; replies</p>
+    </header>
+
+    <section class="card" id="key-card">
+      <h2>API Key</h2>
+      <p class="muted">Stored in this add-in's private storage (per user, per device). Get one at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
+      <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
+      <div class="row">
+        <button id="save-key-btn" class="primary">Save key</button>
+        <span id="key-status" class="status"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Process Comments</h2>
+      <p class="muted">Scans this document for unresolved <code>@claude</code> comments and processes them.</p>
+      <button id="process-now-btn" class="primary">Process @claude comments now</button>
+      <div class="row auto-poll">
+        <label><input type="checkbox" id="auto-poll-toggle" /> Auto-process every 5 minutes while this pane is open</label>
+      </div>
+    </section>
+
+    <section class="card" id="log-card">
+      <h2>Activity</h2>
+      <div id="log"></div>
+    </section>
+
+    <footer>
+      <p class="muted small">
+        Comment syntax: start any comment with <code>@claude</code> followed by your instruction.
+        Claude will edit the document, reply to your comment, and add new comments where needed.
+      </p>
+    </footer>
+  </main>
+
+  <script src="Claude.js"></script>
+  <script src="Code.js"></script>
+</body>
+</html>

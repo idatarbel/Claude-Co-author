@@ -35,6 +35,7 @@ Rules:
 - "original_text" and "quoted_text" must be copied verbatim from the document
 - When placeholders are provided below, use those exact strings verbatim
 - replacement_text must be plain prose only — no markdown (**bold**, _italic_), no citation tags (<cite>), no HTML tags of any kind
+- When a comment is anchored to specific text and asks to "elaborate", "expand", "add detail", or similar — always use action "edit" to replace that text with an expanded version in the document, not reply_only
 - If action is "reply_only", set both "edits" and "comments_to_add" to []`;
 
   const maxDocChars = 12000;

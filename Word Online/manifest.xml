@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  xsi:type="TaskPaneApp">
+
+  <Id>8e3d6f9a-5b7c-4e2a-9d1b-0f7a6c3e5d9b</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Claude Co-author</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Claude Co-author" />
+  <Description DefaultValue="Reply to @claude comments in Word and have Claude edit the document, answer questions, and fill in [VERIFY:] placeholders." />
+  <IconUrl DefaultValue="https://idatarbel.github.io/Claude-Co-author/Word%20Online/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://idatarbel.github.io/Claude-Co-author/Word%20Online/assets/icon-80.png" />
+  <SupportUrl DefaultValue="https://github.com/idatarbel/Claude-Co-author" />
+
+  <AppDomains>
+    <AppDomain>https://api.anthropic.com</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Document" />
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://idatarbel.github.io/Claude-Co-author/Word%20Online/taskpane.html" />
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title" />
+            <Description resid="GetStarted.Description" />
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl" />
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="Claude.Group">
+                <Label resid="Group.Label" />
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16" />
+                  <bt:Image size="32" resid="Icon.32x32" />
+                  <bt:Image size="80" resid="Icon.80x80" />
+                </Icon>
+                <Control xsi:type="Button" id="Claude.OpenPaneButton">
+                  <Label resid="OpenPaneButton.Label" />
+                  <Supertip>
+                    <Title resid="OpenPaneButton.Label" />
+                    <Description resid="OpenPaneButton.Tooltip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16x16" />
+                    <bt:Image size="32" resid="Icon.32x32" />
+                    <bt:Image size="80" resid="Icon.80x80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Claude.Taskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url" />
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16x16" DefaultValue="https://idatarbel.github.io/Claude-Co-author/Word%20Online/assets/icon-16.png" />
+        <bt:Image id="Icon.32x32" DefaultValue="https://idatarbel.github.io/Claude-Co-author/Word%20Online/assets/icon-32.png" />
+        <bt:Image id="Icon.80x80" DefaultValue="https://idatarbel.github.io/Claude-Co-author/Word%20Online/assets/icon-80.png" />
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/idatarbel/Claude-Co-author" />
+        <bt:Url id="Taskpane.Url" DefaultValue="https://idatarbel.github.io/Claude-Co-author/Word%20Online/taskpane.html" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="GetStarted.Title" DefaultValue="Claude Co-author" />
+        <bt:String id="Group.Label" DefaultValue="Claude" />
+        <bt:String id="OpenPaneButton.Label" DefaultValue="Claude Co-author" />
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="GetStarted.Description" DefaultValue="Add @claude comments to your document and Claude will edit, research, and reply." />
+        <bt:String id="OpenPaneButton.Tooltip" DefaultValue="Open the Claude Co-author task pane." />
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

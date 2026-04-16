@@ -58,40 +58,45 @@ function processCurrentDoc() {
 
 function processAllRecentDocs() {
   const lock = LockService.getScriptLock();
-  try {
-    lock.waitLock(30000);
-  } catch(e) {
-    console.error('Could not acquire lock — another execution is in progress.');
+  if (!lock.tryLock(5000)) {
+    console.log('Another execution in progress — skipping this trigger fire.');
     return;
   }
-
   try {
-    const apiKey = getApiKey();
-    if (!apiKey) return;
-
-    const d = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000);
-    const since = Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
-    const query = `mimeType="application/vnd.google-apps.document" and modifiedDate > "${since}"`;
-
-    let files;
-    try {
-      files = DriveApp.searchFiles(query);
-    } catch (e) {
-      console.error('Drive search failed: ' + e.message);
-      return;
-    }
-
-    while (files.hasNext()) {
-      const file = files.next();
-      try {
-        processDocById(file.getId(), apiKey);
-      } catch (e) {
-        console.error(`Skipped doc ${file.getId()}: ${e.message}`);
-      }
-    }
+    runScan();
   } finally {
     lock.releaseLock();
   }
+}
+
+function runScan() {
+  const apiKey = getApiKey();
+  if (!apiKey) return;
+
+  const d = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000);
+  const since = Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+  const query = "mimeType='application/vnd.google-apps.document' and modifiedTime > '" + since + "'";
+
+  const token    = ScriptApp.getOAuthToken();
+  const url      = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name)&pageSize=50';
+  const response = UrlFetchApp.fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() !== 200) {
+    console.error('Drive REST API error: ' + response.getContentText());
+    return;
+  }
+
+  const files = JSON.parse(response.getContentText()).files || [];
+  files.forEach(file => {
+    try {
+      processDocById(file.id, apiKey);
+    } catch(e) {
+      console.error('Skipped ' + file.id + ': ' + e.message);
+    }
+  });
 }
 
 // ─── Core Processing Logic ─────────────────────────────────
@@ -157,7 +162,7 @@ function processDocById(docId, apiKey) {
         commentSummary = `\n\n💬 ${added} research comment(s) added to document.`;
       }
 
-      const replyText = REPLY_MARKER + ' ' + result.reply + editSummary + commentSummary;
+      const replyText = REPLY_MARKER + ' ' + sanitizeReplacement(result.reply) + editSummary + commentSummary;
 
       Drive.Replies.create(
         { content: replyText },
