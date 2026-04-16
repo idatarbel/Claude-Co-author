@@ -8,8 +8,8 @@ This repo ships two implementations:
 
 | Directory         | Platform                                       | Runtime                         |
 |-------------------|------------------------------------------------|---------------------------------|
-| `Google Docs/`    | Google Docs                                    | Google Apps Script (cloud-side) |
-| `Word Online/`    | Word for the Web, Word Desktop, Word for Mac   | Office Add-in (task pane)       |
+| `google-docs/`    | Google Docs                                    | Google Apps Script (cloud-side) |
+| `word-online/`    | Word for the Web, Word Desktop, Word for Mac   | Office Add-in (task pane)       |
 
 Both versions share the same **behavior**, **comment syntax**, and **response
 contract** — you write `@claude <instruction>` and Claude does the work.
@@ -41,7 +41,7 @@ contract** — you write `@claude <instruction>` and Claude does the work.
 
 ---
 
-## Google Docs (`Google Docs/`)
+## Google Docs (`google-docs/`)
 
 Runs as a Google Apps Script bound to your Google account. A time trigger
 scans all recently-modified Google Docs in your Drive every 5 minutes, even
@@ -67,16 +67,16 @@ when no document is open.
 
 **appsscript.json**
 - Click the gear icon in the left sidebar → check "Show appsscript.json manifest file"
-- Replace its entire contents with `Google Docs/appsscript.json` from this repo
+- Replace its entire contents with `google-docs/appsscript.json` from this repo
 
 **Code.gs**
-- Click the existing `Code.gs` file and replace its contents with `Google Docs/Code.gs`
+- Click the existing `Code.gs` file and replace its contents with `google-docs/Code.gs`
 
 **Claude.gs**
-- Click **+** → Script → name it `Claude` → paste contents of `Google Docs/Claude.gs`
+- Click **+** → Script → name it `Claude` → paste contents of `google-docs/Claude.gs`
 
 **Triggers.gs**
-- Click **+** → Script → name it `Triggers` → paste contents of `Google Docs/Triggers.gs`
+- Click **+** → Script → name it `Triggers` → paste contents of `google-docs/Triggers.gs`
 
 #### Step 3 — Enable Advanced Services
 
@@ -140,7 +140,7 @@ comments in any doc modified in the last 10 minutes right now.
 
 ---
 
-## Word Online (`Word Online/`)
+## Word Online (`word-online/`)
 
 Runs as a Microsoft Office Add-in that lives inside Word. When the Claude
 Co-author task pane is open in a document, it scans that document's comments
@@ -170,9 +170,9 @@ way is to enable GitHub Pages on this repo:
 1. Push the repo to GitHub.
 2. Go to **Settings → Pages**, select branch `main`, folder `/ (root)`, **Save**.
 3. Wait ~1 minute. The files will be available at
-   `https://<your-username>.github.io/<repo-name>/Word%20Online/taskpane.html`.
-4. Open `Word Online/manifest.xml` and replace every occurrence of
-   `https://idatarbel.github.io/Claude-Co-author/Word%20Online/` with your own
+   `https://<your-username>.github.io/<repo-name>/word-online/taskpane.html`.
+4. Open `word-online/manifest.xml` and replace every occurrence of
+   `https://idatarbel.github.io/Claude-Co-author/word-online/` with your own
    GitHub Pages URL (unless you're forking Dan's original at
    `idatarbel/Claude-Co-author` — that URL is already correct).
 
@@ -186,7 +186,7 @@ way is to enable GitHub Pages on this repo:
 
 1. In Word for the Web, open any document.
 2. Click **Home → Add-ins → Get Add-ins → Upload My Add-in**.
-3. Browse to `Word Online/manifest.xml` and upload it.
+3. Browse to `word-online/manifest.xml` and upload it.
 4. The **Claude** group appears on the Home tab — click **Claude Co-author**
    to open the task pane.
 
