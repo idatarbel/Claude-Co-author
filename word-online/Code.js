@@ -211,6 +211,20 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
     return false;
   }
 
+  // Log what Claude actually decided to do so we can diagnose bad anchors.
+  if (result.edits && result.edits.length > 0) {
+    log('info', 'Claude edits: ' + JSON.stringify(result.edits.map(e => ({
+      o: (e.original_text    || '').substring(0, 60),
+      r: (e.replacement_text || '').substring(0, 60)
+    }))));
+  }
+  if (result.inserts && result.inserts.length > 0) {
+    log('info', 'Claude inserts: ' + JSON.stringify(result.inserts.map(i => ({
+      after: (i.after_text || '').substring(0, 60),
+      n:     (i.new_paragraphs || []).length
+    }))));
+  }
+
   let editSummary = '';
   if (result.edits && result.edits.length > 0) {
     editSummary = '\n\n' + await applyEdits(result.edits);

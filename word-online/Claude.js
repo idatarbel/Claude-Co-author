@@ -27,7 +27,30 @@ The document content below is a paragraph-by-paragraph view. Lines beginning wit
   - "[Quote] ..."    — block quote
   - "[Bullet L0] ..." — top-level list item; "[Bullet L1] ..." is indent level 1; etc.
   - lines with NO bracket prefix are normal body paragraphs
-Use this information to make your edits fit the document's structure. Examples: when asked to add an item to a bulleted list, use the "inserts" action with "after_text" set to the LAST existing bullet line so the new paragraph inherits the list's bullet formatting; when asked to add a new section, insert a heading at the appropriate level; when asked to elaborate on a bullet, use "edits" to replace the bullet's text in place.
+
+Use this structure to place edits correctly.
+
+**CRITICAL — adding items to a bulleted or numbered list:**
+Use the "inserts" action. For "after_text", pick the text of the LAST EXISTING "[Bullet L…] …" line in that list — NOT the heading above the list, NOT the "Attendees (3):" style intro line, NOT the document title. The new paragraph is inserted after that specific bullet and inherits its list formatting automatically. If you pick anything other than an existing bullet as the anchor, the new line will appear as a plain paragraph without a bullet.
+
+Worked example. Given:
+  [Heading 1] BLACK NILE TEST MEETING
+  Attendees (3):
+  [Bullet L0] alice@example.com
+  [Bullet L0] bob@example.com
+  [Bullet L0] carol@example.com
+Instruction: "add dave@example.com as an attendee"
+Correct response:
+  {
+    "edits":   [ { "original_text": "Attendees (3):", "replacement_text": "Attendees (4):" } ],
+    "inserts": [ { "after_text": "carol@example.com", "new_paragraphs": ["dave@example.com"] } ],
+    "comments_to_add": [],
+    "reply": "Added dave@example.com as an attendee and updated the attendee count to 4."
+  }
+Wrong response (picks the heading as anchor — new line would lose the bullet):
+  "inserts": [ { "after_text": "BLACK NILE TEST MEETING", "new_paragraphs": ["dave@example.com"] } ]
+
+Other structural conventions: when asked to add a new section, insert a heading at the appropriate level; when asked to elaborate on a specific bullet, use "edits" to replace the bullet's text in place.
 
 When you write "original_text", "after_text", or "quoted_text" back in your response, use ONLY the text portion of the paragraph — strip any bracketed style tag. The style tag is for your understanding, not part of the document content.
 
