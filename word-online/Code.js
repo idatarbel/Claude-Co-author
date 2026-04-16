@@ -5,7 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v22';
+const BUILD_VERSION        = 'v23';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
@@ -583,25 +583,64 @@ async function snapshotCommentsOnRange(body, targetRange, context) {
 
   if (!allComments.items || allComments.items.length === 0) return [];
 
-  // Batch the location comparisons in a single sync.
+  // Also load each comment's anchor paragraph so we can do a
+  // paragraph-level fallback check if compareLocationWith is
+  // unreliable (some Word for the Web builds report 'Unrelated' for
+  // genuine overlaps).
   const comparisons = [];
   for (const comment of allComments.items) {
     if (comment.resolved) continue;
-    const cmp = targetRange.compareLocationWith(comment.getRange());
-    comparisons.push({ comment, cmp });
+    const commentRange = comment.getRange();
+    commentRange.load('text');
+    const cmp = targetRange.compareLocationWith(commentRange);
+    comparisons.push({ comment, commentRange, cmp });
   }
+
+  // Also load the target range text for fallback matching.
+  targetRange.load('text');
   await context.sync();
 
-  // For the ones that overlap, queue the replies load and resolve.
+  // Non-overlap relations — everything else is some kind of overlap.
+  const NON_OVERLAP = new Set([
+    'Before', 'After', 'AdjacentBefore', 'AdjacentAfter', 'Unrelated'
+  ]);
+  const targetText = (targetRange.text || '').trim();
+
   const affected = [];
-  for (const { comment, cmp } of comparisons) {
-    const rel = cmp.value; // e.g. 'Equal', 'Inside', 'ContainsStart', 'ContainsEnd', 'Overlap'
-    if (rel === 'Equal' || rel === 'Inside' || rel === 'ContainsStart' ||
-        rel === 'ContainsEnd' || rel === 'Overlap') {
+  const diagnostics = [];
+  for (const { comment, commentRange, cmp } of comparisons) {
+    const rel = cmp.value || 'Unknown';
+    const commentText = (commentRange.text || '').trim();
+
+    let included = false;
+    if (!NON_OVERLAP.has(rel)) {
+      included = true;
+    } else if (commentText && targetText && targetText.indexOf(commentText) !== -1) {
+      // Fallback: if compareLocationWith says no overlap but the comment's
+      // anchor text is a substring of the target text, treat as overlap.
+      // Covers Word for the Web quirks where location compare can misreport.
+      included = true;
+    }
+
+    diagnostics.push({
+      commentText: commentText.substring(0, 40),
+      rel:         rel,
+      included:    included
+    });
+
+    if (included) {
       comment.replies.load('items/content,items/authorName');
       affected.push(comment);
     }
   }
+
+  log('info',
+    'Comment overlap check for edit:\n' +
+    diagnostics.map(d =>
+      `  ${d.included ? '\u2714' : '\u00B7'} rel=${d.rel} anchor="${d.commentText}"`
+    ).join('\n')
+  );
+
   if (affected.length === 0) return [];
   await context.sync();
 
