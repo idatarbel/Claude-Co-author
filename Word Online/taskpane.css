@@ -96,6 +96,19 @@ button.primary:hover:not(:disabled) {
   border-color: #106ebe;
 }
 
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: #605e5c;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: #f3f2f1;
+  color: #201f1e;
+}
+
+.hidden { display: none !important; }
+
 .row {
   display: flex;
   align-items: center;

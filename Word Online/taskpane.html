@@ -3,9 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Claude Co-author</title>
   <script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
-  <link rel="stylesheet" href="taskpane.css" />
+  <link rel="stylesheet" href="taskpane.css?v=3" />
 </head>
 <body>
   <main id="app">
@@ -16,11 +19,31 @@
 
     <section class="card" id="key-card">
       <h2>API Key</h2>
-      <p class="muted">Stored in this add-in's private storage (per user, per device). Get one at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
-      <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
-      <div class="row">
-        <button id="save-key-btn" class="primary">Save key</button>
-        <span id="key-status" class="status"></span>
+
+      <!-- Saved view: shown when a key is persisted -->
+      <div id="key-saved-view" class="hidden">
+        <p class="muted">
+          Anthropic key saved: <code id="key-masked">—</code>
+        </p>
+        <div class="row">
+          <button id="change-key-btn">Change key</button>
+          <button id="clear-key-btn" class="ghost">Remove</button>
+        </div>
+      </div>
+
+      <!-- Edit view: shown when no key is saved OR user clicked Change -->
+      <div id="key-edit-view" class="hidden">
+        <p class="muted">
+          Paste your key from
+          <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>.
+          Stored in this add-in's per-user storage — it survives closing Word.
+        </p>
+        <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
+        <div class="row">
+          <button id="save-key-btn" class="primary">Save key</button>
+          <button id="cancel-key-btn" class="ghost">Cancel</button>
+          <span id="key-status" class="status"></span>
+        </div>
       </div>
     </section>
 
@@ -46,7 +69,7 @@
     </footer>
   </main>
 
-  <script src="Claude.js"></script>
-  <script src="Code.js"></script>
+  <script src="Claude.js?v=3"></script>
+  <script src="Code.js?v=3"></script>
 </body>
 </html>

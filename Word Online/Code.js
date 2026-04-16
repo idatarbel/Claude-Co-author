@@ -19,13 +19,16 @@ let isProcessing   = false;
 Office.onReady(async info => {
   if (info.host !== Office.HostType.Word) return;
 
-  document.getElementById('save-key-btn').onclick    = saveApiKey;
-  document.getElementById('process-now-btn').onclick = onProcessNowClick;
+  document.getElementById('save-key-btn').onclick      = saveApiKey;
+  document.getElementById('change-key-btn').onclick    = () => showKeyEditView(true);
+  document.getElementById('cancel-key-btn').onclick    = () => showKeyEditView(false);
+  document.getElementById('clear-key-btn').onclick     = clearApiKey;
+  document.getElementById('process-now-btn').onclick   = onProcessNowClick;
   document.getElementById('auto-poll-toggle').onchange = onAutoPollToggle;
 
-  // Restore saved API key presence and auto-poll preference
+  // Restore saved API key and auto-poll preference
   const savedKey = await getStoredValue(STORAGE_KEY_API_KEY);
-  setKeyStatus(!!savedKey);
+  renderKeyView(savedKey);
 
   const autoPoll = await getStoredValue(STORAGE_KEY_AUTOPOLL);
   if (autoPoll === 'true') {
@@ -43,14 +46,20 @@ async function saveApiKey() {
   const key   = input.value.trim();
 
   if (!key || !key.startsWith('sk-ant')) {
-    setKeyStatus(false, 'That does not look like a valid Anthropic API key.');
+    setKeyStatus('err', 'That does not look like a valid Anthropic API key.');
     return;
   }
 
   await setStoredValue(STORAGE_KEY_API_KEY, key);
   input.value = '';
-  setKeyStatus(true, 'Saved');
+  renderKeyView(key);
   log('ok', 'API key saved.');
+}
+
+async function clearApiKey() {
+  await setStoredValue(STORAGE_KEY_API_KEY, '');
+  renderKeyView(null);
+  log('info', 'API key removed.');
 }
 
 async function onProcessNowClick() {
@@ -388,15 +397,46 @@ async function setStoredValue(key, value) {
 
 // ─── UI Helpers ───────────────────────────────────────────
 
-function setKeyStatus(saved, message) {
-  const el = document.getElementById('key-status');
-  if (saved) {
-    el.textContent = message || 'Saved';
-    el.className   = 'status ok';
+// Show the "saved key" view if a key exists, otherwise the edit view.
+function renderKeyView(key) {
+  const savedView = document.getElementById('key-saved-view');
+  const editView  = document.getElementById('key-edit-view');
+
+  if (key && key.startsWith('sk-ant')) {
+    document.getElementById('key-masked').textContent = maskKey(key);
+    savedView.classList.remove('hidden');
+    editView.classList.add('hidden');
   } else {
-    el.textContent = message || 'Not set';
-    el.className   = 'status' + (message ? ' err' : '');
+    savedView.classList.add('hidden');
+    editView.classList.remove('hidden');
+    setKeyStatus('', '');
   }
+}
+
+// Explicitly toggle into the edit view (used by Change / Cancel).
+async function showKeyEditView(editing) {
+  if (editing) {
+    document.getElementById('key-saved-view').classList.add('hidden');
+    document.getElementById('key-edit-view').classList.remove('hidden');
+    setKeyStatus('', '');
+    document.getElementById('api-key-input').focus();
+  } else {
+    const savedKey = await getStoredValue(STORAGE_KEY_API_KEY);
+    document.getElementById('api-key-input').value = '';
+    renderKeyView(savedKey);
+  }
+}
+
+function maskKey(key) {
+  if (!key || key.length < 10) return '\u2022\u2022\u2022';
+  return key.slice(0, 7) + '\u2026' + key.slice(-4);
+}
+
+function setKeyStatus(level, message) {
+  const el = document.getElementById('key-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className   = 'status' + (level ? ' ' + level : '');
 }
 
 function log(level, message) {
