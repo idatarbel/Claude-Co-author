@@ -40,7 +40,7 @@ HARD RULES (violating any of these corrupts the document):
 
 5. Return the smallest possible change. One added attendee should produce at most one "inserts" entry with ONE new_paragraph, plus optionally one single-paragraph "edits" entry for a count update. Nothing else.
 
-6. Each "inserts" entry MAY include an optional "style" field (values: "Normal", "Heading 1", "Heading 2", "Heading 3", "Title", "Subtitle", "Quote"). If omitted, the applicator picks a sensible default: bullet anchors continue the bullet list; heading/title/subtitle anchors default to "Normal" body text; anything else inherits the anchor's style. Set "style" explicitly ONLY when you want something different — for example, use "style": "Heading 2" when adding a brand-new subsection header.
+6. Formatting is your responsibility. Each "inserts" entry MAY include a "style" field naming a Word built-in paragraph style ("Normal", "Heading 1", "Heading 2", …, "Title", "Subtitle", "Quote", etc.). Look at the annotated document view — where the new paragraph lands, what the surrounding paragraphs are — and pick a style that fits. For example: body content typed into a section beneath a "[Heading 2]" heading is "Normal"; a new subsection header is "Heading 2"; a pull-quote is "Quote". Bulleted list inserts inherit the list's formatting automatically — do not set "style" for those. If you omit "style" on a non-bullet insert, the new paragraph will inherit the anchor's style, which is rarely what you want — so set it intentionally.
 
 Respond with a single JSON object in this exact format:
 {

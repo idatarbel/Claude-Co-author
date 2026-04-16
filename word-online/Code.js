@@ -126,7 +126,7 @@ async function processCurrentDoc(manual) {
       return;
     }
 
-    log('info', `Processing ${toProcess.length} @claude comment(s) in "${docName}"... [build v14]`);
+    log('info', `Processing ${toProcess.length} @claude comment(s) in "${docName}"... [build v15]`);
 
     // Diagnostic: show Claude exactly what we are showing Claude.
     const annotatedPreview = (docAnnotated || '').substring(0, 2000);
@@ -301,35 +301,6 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
 }
 
 // ─── Safety Rails ─────────────────────────────────────────
-
-// Word uses human-readable style names (e.g., "Heading 1") for the .style
-// setter, but the styleBuiltIn enum values are "Heading1" (no space). Map
-// between the two so prompt guidance can use either form.
-const BUILTIN_TO_DISPLAY = {
-  Normal:     'Normal',
-  Title:      'Title',
-  Subtitle:   'Subtitle',
-  Quote:      'Quote',
-  IntenseQuote: 'Intense Quote',
-  Heading1:   'Heading 1',
-  Heading2:   'Heading 2',
-  Heading3:   'Heading 3',
-  Heading4:   'Heading 4',
-  Heading5:   'Heading 5',
-  Heading6:   'Heading 6',
-  Heading7:   'Heading 7',
-  Heading8:   'Heading 8',
-  Heading9:   'Heading 9'
-};
-
-// Content that follows a heading should be body text, not another heading.
-// Same for title/subtitle. Anything else: let Word default.
-function defaultStyleFor(anchorStyleBuiltIn) {
-  if (/^(Heading\d+|Title|Subtitle)$/.test(anchorStyleBuiltIn || '')) {
-    return 'Normal';
-  }
-  return null;
-}
 
 // Reject destructive edits before they touch the document.
 function isSafeEdit(e) {
@@ -514,20 +485,19 @@ async function applyInserts(inserts) {
           }
         }
 
-        // Pick the right style for the new paragraph. Bulleted anchors are
-        // left alone — the list insert already carries the formatting.
-        if (!anchorInList) {
-          const explicit = (ins.style || '').trim();
-          const defaultStyle = defaultStyleFor(anchorStyle);
-          const desired = explicit || defaultStyle;
-          if (desired) {
-            try {
-              newPara.style = desired;
-              await context.sync();
-              log('info', `Applied style "${desired}" to new paragraph (anchor was ${anchorStyle}).`);
-            } catch (e) {
-              log('err', `Could not apply style "${desired}": ${e.message}`);
-            }
+        // Apply whatever style Claude chose for this paragraph. Bullet
+        // anchors are left alone — the list insert already carries the
+        // correct formatting. For non-list inserts, trust Claude's
+        // decision; it has seen the annotated doc and picked a style that
+        // fits the context.
+        if (!anchorInList && ins.style) {
+          const desired = String(ins.style).trim();
+          try {
+            newPara.style = desired;
+            await context.sync();
+            log('info', `Applied style "${desired}" to new paragraph.`);
+          } catch (e) {
+            log('err', `Could not apply style "${desired}": ${e.message}`);
           }
         }
 
