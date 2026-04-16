@@ -211,28 +211,32 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
     return false;
   }
 
-  // Log what Claude actually decided to do so we can diagnose bad anchors.
+  // Log Claude's full raw response so we can see exactly what it asked for.
   if (result.edits && result.edits.length > 0) {
-    log('info', 'Claude edits: ' + JSON.stringify(result.edits.map(e => ({
-      o: (e.original_text    || '').substring(0, 60),
-      r: (e.replacement_text || '').substring(0, 60)
-    }))));
+    log('info', 'Claude edits:\n' + result.edits.map(e =>
+      `  o: ${JSON.stringify((e.original_text || '').substring(0, 100))}\n` +
+      `  r: ${JSON.stringify((e.replacement_text || '').substring(0, 100))}`
+    ).join('\n'));
   }
   if (result.inserts && result.inserts.length > 0) {
-    log('info', 'Claude inserts: ' + JSON.stringify(result.inserts.map(i => ({
-      after: (i.after_text || '').substring(0, 60),
-      n:     (i.new_paragraphs || []).length
-    }))));
+    log('info', 'Claude inserts:\n' + result.inserts.map(i =>
+      `  after: ${JSON.stringify((i.after_text || '').substring(0, 100))}\n` +
+      `  new:   ${JSON.stringify(i.new_paragraphs || [])}`
+    ).join('\n'));
   }
 
+  // Safety rails: drop edits/inserts that would damage the document.
+  const safeEdits   = (result.edits   || []).filter(e => isSafeEdit(e));
+  const safeInserts = (result.inserts || []).filter(i => isSafeInsert(i));
+
   let editSummary = '';
-  if (result.edits && result.edits.length > 0) {
-    editSummary = '\n\n' + await applyEdits(result.edits);
+  if (safeEdits.length > 0) {
+    editSummary = '\n\n' + await applyEdits(safeEdits);
   }
 
   let insertSummary = '';
-  if (result.inserts && result.inserts.length > 0) {
-    insertSummary = '\n\n' + await applyInserts(result.inserts);
+  if (safeInserts.length > 0) {
+    insertSummary = '\n\n' + await applyInserts(safeInserts);
   }
 
   let commentSummary = '';
