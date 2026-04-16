@@ -12,16 +12,20 @@ const LOOKBACK_MINUTES = 10;
 // ─── Add-on Lifecycle ─────────────────────────────────────
 
 function onOpen(e) {
-  DocumentApp.getUi()
-    .createAddonMenu()
-    .addItem('⚡ Process @claude comments now', 'processCurrentDoc')
-    .addSeparator()
-    .addItem('▶ Start auto-polling (every 5 min)', 'setupTrigger')
-    .addItem('⏹ Stop auto-polling', 'removeTrigger')
-    .addSeparator()
-    .addItem('🔑 Set API Key', 'promptApiKey')
-    .addItem('📊 View polling status', 'showStatus')
-    .addToUi();
+  try {
+    DocumentApp.getUi()
+      .createAddonMenu()
+      .addItem('⚡ Process @claude comments now', 'processCurrentDoc')
+      .addSeparator()
+      .addItem('▶ Start auto-polling (every 5 min)', 'setupTrigger')
+      .addItem('⏹ Stop auto-polling', 'removeTrigger')
+      .addSeparator()
+      .addItem('🔑 Set API Key', 'promptApiKey')
+      .addItem('📊 View polling status', 'showStatus')
+      .addToUi();
+  } catch(e) {
+    // Not running inside a Google Doc — skip UI setup
+  }
 }
 
 function onInstall(e) {
@@ -55,8 +59,9 @@ function processAllRecentDocs() {
   const apiKey = getApiKey();
   if (!apiKey) return;
 
-  const since = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000).toISOString();
-  const query = `mimeType="application/vnd.google-apps.document" and modifiedTime > "${since}"`;
+  const d = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000);
+  const since = Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+  const query = `mimeType="application/vnd.google-apps.document" and modifiedDate > "${since}"`;
 
   let files;
   try {
@@ -184,4 +189,37 @@ function applyEdit(docId, edit, claudeReply) {
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+
+function debugComments() {
+  const apiKey = getApiKey();
+  Logger.log('API key present: ' + !!apiKey);
+
+  const d = new Date(Date.now() - 60 * 60 * 1000); // last 60 minutes
+  const since = Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+  const query = `mimeType="application/vnd.google-apps.document" and modifiedDate > "${since}"`;
+  
+  const files = DriveApp.searchFiles(query);
+  let fileCount = 0;
+  while (files.hasNext()) {
+    const file = files.next();
+    fileCount++;
+    Logger.log('Found doc: ' + file.getName() + ' (' + file.getId() + ')');
+    
+    try {
+      const resp = Drive.Comments.list(file.getId(), {
+        fields: 'comments(id,content,resolved,replies(content),quotedFileContent)',
+        pageSize: 100
+      });
+      const comments = resp.comments || [];
+      Logger.log('  Comments found: ' + comments.length);
+      comments.forEach(c => {
+        Logger.log('  Comment: ' + c.content + ' | resolved: ' + c.resolved);
+      });
+    } catch(e) {
+      Logger.log('  ERROR fetching comments: ' + e.message);
+    }
+  }
+  Logger.log('Total docs found: ' + fileCount);
 }
