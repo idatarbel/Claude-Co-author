@@ -124,6 +124,20 @@ async function processCurrentDoc(manual) {
 
     log('info', `Processing ${toProcess.length} @claude comment(s) in "${docName}"...`);
 
+    // Diagnostic: show Claude exactly what we are showing Claude.
+    const annotatedPreview = docAnnotated.substring(0, 2000);
+    log('info', 'Annotated doc sent to Claude (first 2000 chars):\n' + annotatedPreview +
+      (docAnnotated.length > 2000 ? '\n[...truncated]' : ''));
+
+    const bulletCount = (docAnnotated.match(/\[Bullet L\d+\]/g) || []).length;
+    if (bulletCount === 0) {
+      log('err', 'No real Word bullets detected in this document. ' +
+        'The lines that look like bullets are probably manual "• " characters or tab-indented text, ' +
+        'not actual Word list items. Claude cannot tell them apart from normal paragraphs.');
+    } else {
+      log('ok', `${bulletCount} bulleted paragraph(s) detected in the annotated view.`);
+    }
+
     let processed = 0;
     for (const c of toProcess) {
       try {
