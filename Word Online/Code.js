@@ -313,11 +313,39 @@ async function applyInserts(inserts) {
 
       let anchorPara = paragraphs.items[paragraphs.items.length - 1];
 
+      // Load the anchor's list info so new paragraphs can inherit bullet / numbering.
+      anchorPara.load('listOrNullObject/id,listItemOrNullObject/level');
+      await context.sync();
+
+      const anchorList = anchorPara.listOrNullObject;
+      const anchorItem = anchorPara.listItemOrNullObject;
+      const anchorInList = !anchorList.isNullObject && !anchorItem.isNullObject;
+      const listId = anchorInList ? anchorList.id    : null;
+      const level  = anchorInList ? anchorItem.level : 0;
+
       for (const newText of ins.new_paragraphs) {
         const clean = sanitizeReplacement(newText);
         if (!clean) continue;
-        anchorPara = anchorPara.insertParagraph(clean, 'After');
+
+        const newPara = anchorPara.insertParagraph(clean, 'After');
         await context.sync();
+
+        if (anchorInList) {
+          // Only attach if the new paragraph isn't already a list item (some
+          // Word builds auto-continue the list; attaching twice throws).
+          newPara.load('listItemOrNullObject');
+          await context.sync();
+          if (newPara.listItemOrNullObject.isNullObject) {
+            try {
+              newPara.attachToList(listId, level);
+              await context.sync();
+            } catch (e) {
+              log('err', 'Could not attach new paragraph to list: ' + e.message);
+            }
+          }
+        }
+
+        anchorPara = newPara;
         inserted++;
       }
     }
