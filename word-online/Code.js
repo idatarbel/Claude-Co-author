@@ -5,7 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v24';
+const BUILD_VERSION        = 'v25';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
@@ -395,9 +395,12 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
   const rejectedEdits     = requestedEdits   - safeEdits.length;
   const rejectedInserts   = requestedInserts - safeInserts.length;
 
-  let editSummary = '';
+  let editSummary   = '';
+  let reanchorIdMap = null;
   if (safeEdits.length > 0) {
-    editSummary = '\n\n' + await applyEdits(safeEdits, c.id);
+    const editResult = await applyEdits(safeEdits);
+    editSummary   = '\n\n' + editResult.summary;
+    reanchorIdMap = editResult.idMap || null;
   }
 
   let insertSummary = '';
@@ -434,8 +437,17 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
     rejectionNotes += `\n\n\u26A0\uFE0F ${rejectedInserts} insert(s) rejected by safety rails.`;
   }
 
+  // If our @claude comment got re-anchored to new text during applyEdits
+  // (because the text it was attached to was replaced), reply to the
+  // re-anchored copy — the original id is no longer in the document.
+  let effectiveCommentId = c.id;
+  if (reanchorIdMap && reanchorIdMap.has(c.id)) {
+    effectiveCommentId = reanchorIdMap.get(c.id);
+    log('info', `@claude comment was re-anchored ${c.id} -> ${effectiveCommentId}; replying to new id.`);
+  }
+
   const replyText = REPLY_MARKER + ' ' + replyBody + editSummary + insertSummary + commentSummary + rejectionNotes;
-  await replyToComment(c.id, replyText);
+  await replyToComment(effectiveCommentId, replyText);
   return true;
 }
 
@@ -487,15 +499,16 @@ function isSafeInsert(i) {
 
 // ─── Word Document Mutations ──────────────────────────────
 
-async function applyEdits(edits, skipCommentId) {
+async function applyEdits(edits) {
   const valid = edits.filter(e => e.original_text && e.replacement_text);
-  if (valid.length === 0) return 'No valid edits to apply.';
+  if (valid.length === 0) return { summary: 'No valid edits to apply.', idMap: new Map() };
 
   let applied       = 0;
   let missed        = 0;
   let skipped       = 0;
   let preserved     = 0;
   const missedTexts = [];
+  const idMap       = new Map(); // original comment id -> new comment id after re-anchor
 
   await Word.run(async context => {
     const body = context.document.body;
@@ -518,13 +531,14 @@ async function applyEdits(edits, skipCommentId) {
       }
 
       // Replace only the first match to avoid clobbering identical text
-      // elsewhere. Snapshot any comments anchored to that range first so
-      // we can re-anchor them after the destructive replace. Skip the
-      // @claude comment we're currently processing so we don't destroy
-      // our own reply target by re-anchoring it with a new ID.
+      // elsewhere. Snapshot every comment anchored to that range so we
+      // can re-anchor them after the destructive replace, including the
+      // @claude comment itself — Word often deletes orphaned comments
+      // rather than leaving them floating, so the reply target must be
+      // tracked through the re-anchor (see idMap).
       const targetRange  = results.items[0];
       const replacement  = sanitizeReplacement(edit.replacement_text);
-      const savedComments = await snapshotCommentsOnRange(body, targetRange, context, skipCommentId);
+      const savedComments = await snapshotCommentsOnRange(body, targetRange, context);
 
       targetRange.insertText(replacement, 'Replace');
       await context.sync();
@@ -543,7 +557,13 @@ async function applyEdits(edits, skipCommentId) {
           for (const saved of savedComments) {
             try {
               const newComment = newRange.insertComment(saved.content || '');
+              newComment.load('id');
               await context.sync();
+
+              if (saved.originalId && newComment.id) {
+                idMap.set(saved.originalId, newComment.id);
+              }
+
               for (const reply of saved.replies) {
                 try {
                   newComment.reply(reply.content || '');
@@ -572,17 +592,15 @@ async function applyEdits(edits, skipCommentId) {
   if (preserved > 0) summary += ` \uD83E\uDD1D ${preserved} comment(s) preserved across the edit.`;
   if (missed  > 0) summary += ` \u26A0\uFE0F ${missed} string(s) not found.`;
   if (skipped > 0) summary += ` \u26A0\uFE0F ${skipped} multi-line edit(s) skipped — use "inserts" instead.`;
-  return summary;
+  return { summary, idMap };
 }
 
 // Find every non-resolved comment whose anchor overlaps the given range.
-// Captures content + reply content so we can reconstruct the thread
-// after a destructive replace destroys the original anchor.
-//
-// `skipCommentId` is the id of the @claude comment we are currently
-// responding to — we intentionally DO NOT re-anchor it because doing
-// so would give it a new id and orphan our reply target.
-async function snapshotCommentsOnRange(body, targetRange, context, skipCommentId) {
+// Captures original id + content + reply content so we can reconstruct
+// the thread after a destructive replace destroys the original anchor.
+// The original id is returned so applyEdits can map old ids to newly
+// created ids and preserve Claude's reply target.
+async function snapshotCommentsOnRange(body, targetRange, context) {
   const allComments = body.getComments();
   allComments.load('items/id,items/content,items/resolved');
   await context.sync();
@@ -596,7 +614,6 @@ async function snapshotCommentsOnRange(body, targetRange, context, skipCommentId
   const comparisons = [];
   for (const comment of allComments.items) {
     if (comment.resolved) continue;
-    if (skipCommentId && comment.id === skipCommentId) continue; // don't re-anchor our own reply target
     const commentRange = comment.getRange();
     commentRange.load('text');
     const cmp = targetRange.compareLocationWith(commentRange);
@@ -652,7 +669,8 @@ async function snapshotCommentsOnRange(body, targetRange, context, skipCommentId
   await context.sync();
 
   return affected.map(c => ({
-    content: c.content || '',
+    originalId: c.id,
+    content:    c.content || '',
     replies: (c.replies && c.replies.items)
       ? c.replies.items.map(r => ({
           content: r.content || '',
