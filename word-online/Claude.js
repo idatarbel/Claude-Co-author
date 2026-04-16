@@ -121,13 +121,37 @@ Rules:
         })
       });
     } catch (e) {
-      console.error('fetch error: ' + e.message);
+      const msg = 'Network error calling Anthropic API: ' + e.message;
+      console.error(msg);
+      if (typeof log === 'function') log('err', msg);
       return null;
     }
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error(`Claude API returned ${response.status}: ${errText}`);
+      let errDetail = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed && parsed.error && parsed.error.message) {
+          errDetail = parsed.error.type
+            ? `${parsed.error.type}: ${parsed.error.message}`
+            : parsed.error.message;
+        }
+      } catch (_) { /* keep raw errText */ }
+
+      const msg = `Anthropic API returned HTTP ${response.status} — ${errDetail.substring(0, 400)}`;
+      console.error(msg);
+      if (typeof log === 'function') {
+        if (response.status === 401 || response.status === 403) {
+          log('err', `${msg}\nLikely cause: API key is invalid, expired, or missing billing setup. Check console.anthropic.com → API Keys and Billing.`);
+        } else if (response.status === 429) {
+          log('err', `${msg}\nLikely cause: rate limit or credit exhausted. Check console.anthropic.com → Usage.`);
+        } else if (response.status === 400 && /model/i.test(errDetail)) {
+          log('err', `${msg}\nLikely cause: the model "${CLAUDE_MODEL}" isn't available on this account.`);
+        } else {
+          log('err', msg);
+        }
+      }
       return null;
     }
 
@@ -163,14 +187,18 @@ Rules:
   }
 
   if (!finalText) {
-    console.error('No final text from Claude after tool loop');
+    const msg = 'Anthropic returned no text content after the tool loop ran ' + maxIterations + ' iterations.';
+    console.error(msg);
+    if (typeof log === 'function') log('err', msg);
     return null;
   }
 
   try {
     const jsonMatch = finalText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('No JSON found in Claude response. Raw: ' + finalText);
+      const msg = 'Claude returned text but no JSON object was found in it. Raw response: ' + finalText.substring(0, 400);
+      console.error(msg);
+      if (typeof log === 'function') log('err', msg);
       return null;
     }
     const parsed = JSON.parse(jsonMatch[0]);
@@ -182,7 +210,9 @@ Rules:
 
     return parsed;
   } catch (e) {
-    console.error('Failed to parse Claude response: ' + e.message + '\nRaw: ' + finalText);
+    const msg = 'Failed to parse Claude JSON response: ' + e.message + '\nRaw (first 400 chars): ' + finalText.substring(0, 400);
+    console.error(msg);
+    if (typeof log === 'function') log('err', msg);
     return null;
   }
 }

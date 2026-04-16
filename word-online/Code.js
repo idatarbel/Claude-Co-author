@@ -5,7 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v16';
+const BUILD_VERSION        = 'v17';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
