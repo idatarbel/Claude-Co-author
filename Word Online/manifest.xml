@@ -7,7 +7,7 @@
   xsi:type="TaskPaneApp">
 
   <Id>8e3d6f9a-5b7c-4e2a-9d1b-0f7a6c3e5d9b</Id>
-  <Version>1.0.0.0</Version>
+  <Version>1.0.1.0</Version>
   <ProviderName>Claude Co-author</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Claude Co-author" />
