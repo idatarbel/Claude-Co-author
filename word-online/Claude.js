@@ -193,26 +193,74 @@ Rules:
     return null;
   }
 
-  try {
-    const jsonMatch = finalText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      const msg = 'Claude returned text but no JSON object was found in it. Raw response: ' + finalText.substring(0, 400);
-      console.error(msg);
-      if (typeof log === 'function') log('err', msg);
-      return null;
-    }
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    if (parsed.edit && !parsed.edits) parsed.edits = [parsed.edit];
-    if (!parsed.edits)           parsed.edits           = [];
-    if (!parsed.inserts)         parsed.inserts         = [];
-    if (!parsed.comments_to_add) parsed.comments_to_add = [];
-
-    return parsed;
-  } catch (e) {
-    const msg = 'Failed to parse Claude JSON response: ' + e.message + '\nRaw (first 400 chars): ' + finalText.substring(0, 400);
+  const parsed = extractJsonObject(finalText);
+  if (!parsed) {
+    const msg = 'Claude did not return a parseable JSON object. Raw response (first 400 chars): ' + finalText.substring(0, 400);
     console.error(msg);
     if (typeof log === 'function') log('err', msg);
     return null;
   }
+
+  if (parsed.edit && !parsed.edits) parsed.edits = [parsed.edit];
+  if (!parsed.edits)           parsed.edits           = [];
+  if (!parsed.inserts)         parsed.inserts         = [];
+  if (!parsed.comments_to_add) parsed.comments_to_add = [];
+
+  return parsed;
+}
+
+// Try several strategies to pull a JSON object out of Claude's free-form
+// text response. Claude sometimes wraps JSON in ```json fences, sometimes
+// prefixes it with a sentence of prose, and occasionally produces
+// malformed output during a web_search tool loop. Try each option in
+// order and return the first one that parses.
+function extractJsonObject(text) {
+  if (!text) return null;
+
+  // 1) Fenced code block: ```json ... ```  (or ``` ... ```)
+  const fenceMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/i);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1].trim()); }
+    catch (_) { /* fall through */ }
+  }
+
+  // 2) The outermost balanced { ... } span.
+  const first = text.indexOf('{');
+  const last  = text.lastIndexOf('}');
+  if (first !== -1 && last > first) {
+    try { return JSON.parse(text.slice(first, last + 1)); }
+    catch (_) { /* fall through */ }
+  }
+
+  // 3) Walk forward from each { and try a balanced-braces scan.
+  let i = 0;
+  while (i < text.length) {
+    const start = text.indexOf('{', i);
+    if (start === -1) break;
+    let depth = 0;
+    let inString = false;
+    let escape   = false;
+    for (let j = start; j < text.length; j++) {
+      const ch = text[j];
+      if (inString) {
+        if (escape)        escape = false;
+        else if (ch === '\\') escape = true;
+        else if (ch === '"')  inString = false;
+      } else {
+        if (ch === '"')       inString = true;
+        else if (ch === '{')  depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            try { return JSON.parse(text.slice(start, j + 1)); }
+            catch (_) { /* keep searching */ }
+            break;
+          }
+        }
+      }
+    }
+    i = start + 1;
+  }
+
+  return null;
 }

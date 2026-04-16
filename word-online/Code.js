@@ -5,7 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v19';
+const BUILD_VERSION        = 'v20';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
@@ -340,8 +340,12 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
   }
 
   // Safety rails: drop edits/inserts that would damage the document.
-  const safeEdits   = (result.edits   || []).filter(e => isSafeEdit(e));
-  const safeInserts = (result.inserts || []).filter(i => isSafeInsert(i));
+  const requestedEdits    = (result.edits   || []).length;
+  const requestedInserts  = (result.inserts || []).length;
+  const safeEdits         = (result.edits   || []).filter(e => isSafeEdit(e));
+  const safeInserts       = (result.inserts || []).filter(i => isSafeInsert(i));
+  const rejectedEdits     = requestedEdits   - safeEdits.length;
+  const rejectedInserts   = requestedInserts - safeInserts.length;
 
   let editSummary = '';
   if (safeEdits.length > 0) {
@@ -359,7 +363,30 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
     commentSummary = `\n\n\uD83D\uDCAC ${added} research comment(s) added to document.`;
   }
 
-  const replyText = REPLY_MARKER + ' ' + sanitizeReplacement(result.reply) + editSummary + insertSummary + commentSummary;
+  // If the safety rails threw out ANYTHING, surface it at the TOP of the
+  // reply so the user can't be misled by Claude's pre-generated "I did X"
+  // sentence when nothing in fact happened. Override the reply entirely
+  // when the safety rails stopped everything.
+  const anyChangeApplied = safeEdits.length > 0 || safeInserts.length > 0 ||
+    (result.comments_to_add && result.comments_to_add.length > 0);
+  const anythingRejected = rejectedEdits > 0 || rejectedInserts > 0;
+
+  let replyBody = sanitizeReplacement(result.reply || '');
+  if (anythingRejected && !anyChangeApplied) {
+    // Claude's "I did it" sentence is flat-out wrong. Replace it.
+    replyBody =
+      'I tried to make changes, but my response contained edits or inserts that the safety rails rejected — usually because the edit included paragraph breaks (edits must stay within one paragraph) or the insert tried to add too many paragraphs at once. No changes were applied to the document. Try rephrasing your request, or break it into smaller pieces.';
+  }
+
+  let rejectionNotes = '';
+  if (rejectedEdits > 0) {
+    rejectionNotes += `\n\n\u26A0\uFE0F ${rejectedEdits} edit(s) rejected by safety rails.`;
+  }
+  if (rejectedInserts > 0) {
+    rejectionNotes += `\n\n\u26A0\uFE0F ${rejectedInserts} insert(s) rejected by safety rails.`;
+  }
+
+  const replyText = REPLY_MARKER + ' ' + replyBody + editSummary + insertSummary + commentSummary + rejectionNotes;
   await replyToComment(c.id, replyText);
   return true;
 }
