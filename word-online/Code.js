@@ -250,6 +250,52 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
   return true;
 }
 
+// ─── Safety Rails ─────────────────────────────────────────
+
+// Reject destructive edits before they touch the document.
+function isSafeEdit(e) {
+  if (!e || !e.original_text || !e.replacement_text) return false;
+  if (/\r|\n/.test(e.original_text)) {
+    log('err', `Rejected edit: multi-line original_text "${e.original_text.substring(0, 60)}..."`);
+    return false;
+  }
+  if (/\r|\n/.test(e.replacement_text)) {
+    log('err', `Rejected edit: replacement_text contains newline(s); would split paragraphs. original="${e.original_text.substring(0, 60)}"`);
+    return false;
+  }
+  if (e.replacement_text.length > 2000) {
+    log('err', `Rejected edit: replacement_text > 2000 chars; looks suspicious.`);
+    return false;
+  }
+  return true;
+}
+
+// Reject inserts that would dump whole sections into the doc.
+function isSafeInsert(i) {
+  if (!i || !i.after_text || !Array.isArray(i.new_paragraphs) || i.new_paragraphs.length === 0) {
+    return false;
+  }
+  if (/\r|\n/.test(i.after_text)) {
+    log('err', `Rejected insert: multi-line after_text "${i.after_text.substring(0, 60)}..."`);
+    return false;
+  }
+  if (i.new_paragraphs.length > 10) {
+    log('err', `Rejected insert: ${i.new_paragraphs.length} new paragraphs in one insert — exceeds safety cap of 10.`);
+    return false;
+  }
+  for (const p of i.new_paragraphs) {
+    if (typeof p !== 'string') {
+      log('err', `Rejected insert: non-string new_paragraph.`);
+      return false;
+    }
+    if (/\r|\n/.test(p)) {
+      log('err', `Rejected insert: new_paragraph contains newline(s). Split into separate entries instead.`);
+      return false;
+    }
+  }
+  return true;
+}
+
 // ─── Word Document Mutations ──────────────────────────────
 
 async function applyEdits(edits) {
