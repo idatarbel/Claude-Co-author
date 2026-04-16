@@ -107,7 +107,11 @@ async function processCurrentDoc(manual) {
   processBtn.textContent = 'Processing...';
 
   try {
-    const { docText, docAnnotated, docName, commentData } = await readDocState();
+    const state = await readDocState();
+    const docText      = state && state.docText      || '';
+    const docAnnotated = state && state.docAnnotated || state && state.docText || '';
+    const docName      = state && state.docName      || 'Untitled';
+    const commentData  = state && state.commentData  || [];
 
     if (!commentData.length) {
       if (manual) log('info', 'No comments found in document.');
@@ -122,10 +126,10 @@ async function processCurrentDoc(manual) {
       return;
     }
 
-    log('info', `Processing ${toProcess.length} @claude comment(s) in "${docName}"...`);
+    log('info', `Processing ${toProcess.length} @claude comment(s) in "${docName}"... [build v13]`);
 
     // Diagnostic: show Claude exactly what we are showing Claude.
-    const annotatedPreview = docAnnotated.substring(0, 2000);
+    const annotatedPreview = (docAnnotated || '').substring(0, 2000);
     log('info', 'Annotated doc sent to Claude (first 2000 chars):\n' + annotatedPreview +
       (docAnnotated.length > 2000 ? '\n[...truncated]' : ''));
 
