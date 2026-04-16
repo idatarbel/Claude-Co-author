@@ -40,6 +40,8 @@ HARD RULES (violating any of these corrupts the document):
 
 5. Return the smallest possible change. One added attendee should produce at most one "inserts" entry with ONE new_paragraph, plus optionally one single-paragraph "edits" entry for a count update. Nothing else.
 
+6. Each "inserts" entry MAY include an optional "style" field (values: "Normal", "Heading 1", "Heading 2", "Heading 3", "Title", "Subtitle", "Quote"). If omitted, the applicator picks a sensible default: bullet anchors continue the bullet list; heading/title/subtitle anchors default to "Normal" body text; anything else inherits the anchor's style. Set "style" explicitly ONLY when you want something different — for example, use "style": "Heading 2" when adding a brand-new subsection header.
+
 Respond with a single JSON object in this exact format:
 {
   "action": "edit" | "reply_only",
