@@ -5,7 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v21';
+const BUILD_VERSION        = 'v22';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
@@ -491,12 +491,15 @@ async function applyEdits(edits) {
   const valid = edits.filter(e => e.original_text && e.replacement_text);
   if (valid.length === 0) return 'No valid edits to apply.';
 
-  let applied      = 0;
-  let missed       = 0;
-  let skipped      = 0;
+  let applied       = 0;
+  let missed        = 0;
+  let skipped       = 0;
+  let preserved     = 0;
   const missedTexts = [];
 
   await Word.run(async context => {
+    const body = context.document.body;
+
     for (const edit of valid) {
       // search() can't match across paragraph breaks; skip multi-line edits.
       if (/\r|\n/.test(edit.original_text)) {
@@ -504,7 +507,7 @@ async function applyEdits(edits) {
         missedTexts.push('(multi-line edit skipped) ' + edit.original_text.split(/\r?\n/)[0]);
         continue;
       }
-      const results = context.document.body.search(edit.original_text, { matchCase: true });
+      const results = body.search(edit.original_text, { matchCase: true });
       results.load('items');
       await context.sync();
 
@@ -513,11 +516,50 @@ async function applyEdits(edits) {
         missedTexts.push(edit.original_text);
         continue;
       }
-      // Replace only the first match to avoid clobbering identical text elsewhere.
-      results.items[0].insertText(sanitizeReplacement(edit.replacement_text), 'Replace');
+
+      // Replace only the first match to avoid clobbering identical text
+      // elsewhere. Snapshot any comments anchored to that range first so
+      // we can re-anchor them after the destructive replace.
+      const targetRange  = results.items[0];
+      const replacement  = sanitizeReplacement(edit.replacement_text);
+      const savedComments = await snapshotCommentsOnRange(body, targetRange, context);
+
+      targetRange.insertText(replacement, 'Replace');
+      await context.sync();
       applied++;
+
+      if (savedComments.length > 0) {
+        // Find the newly inserted text and re-anchor the saved comments to
+        // its range so the comment thread follows the edit instead of
+        // being silently orphaned.
+        const newResults = body.search(replacement, { matchCase: true });
+        newResults.load('items');
+        await context.sync();
+
+        if (newResults.items.length > 0) {
+          const newRange = pickClosestMatch(newResults.items);
+          for (const saved of savedComments) {
+            try {
+              const newComment = newRange.insertComment(saved.content || '');
+              await context.sync();
+              for (const reply of saved.replies) {
+                try {
+                  newComment.reply(reply.content || '');
+                } catch (e) {
+                  log('err', `Could not replay reply: ${e.message}`);
+                }
+              }
+              preserved++;
+            } catch (e) {
+              log('err', `Could not re-anchor saved comment: ${e.message}`);
+            }
+          }
+          await context.sync();
+        } else {
+          log('err', `Replaced "${edit.original_text.substring(0, 40)}" but could not find replacement text to re-anchor ${savedComments.length} comment(s).`);
+        }
+      }
     }
-    await context.sync();
   });
 
   if (missedTexts.length > 0) {
@@ -525,9 +567,62 @@ async function applyEdits(edits) {
   }
 
   let summary = `\u2705 ${applied} edit(s) applied.`;
+  if (preserved > 0) summary += ` \uD83E\uDD1D ${preserved} comment(s) preserved across the edit.`;
   if (missed  > 0) summary += ` \u26A0\uFE0F ${missed} string(s) not found.`;
   if (skipped > 0) summary += ` \u26A0\uFE0F ${skipped} multi-line edit(s) skipped — use "inserts" instead.`;
   return summary;
+}
+
+// Find every non-resolved comment whose anchor overlaps the given range.
+// Captures content + reply content so we can reconstruct the thread
+// after a destructive replace destroys the original anchor.
+async function snapshotCommentsOnRange(body, targetRange, context) {
+  const allComments = body.getComments();
+  allComments.load('items/id,items/content,items/resolved');
+  await context.sync();
+
+  if (!allComments.items || allComments.items.length === 0) return [];
+
+  // Batch the location comparisons in a single sync.
+  const comparisons = [];
+  for (const comment of allComments.items) {
+    if (comment.resolved) continue;
+    const cmp = targetRange.compareLocationWith(comment.getRange());
+    comparisons.push({ comment, cmp });
+  }
+  await context.sync();
+
+  // For the ones that overlap, queue the replies load and resolve.
+  const affected = [];
+  for (const { comment, cmp } of comparisons) {
+    const rel = cmp.value; // e.g. 'Equal', 'Inside', 'ContainsStart', 'ContainsEnd', 'Overlap'
+    if (rel === 'Equal' || rel === 'Inside' || rel === 'ContainsStart' ||
+        rel === 'ContainsEnd' || rel === 'Overlap') {
+      comment.replies.load('items/content,items/authorName');
+      affected.push(comment);
+    }
+  }
+  if (affected.length === 0) return [];
+  await context.sync();
+
+  return affected.map(c => ({
+    content: c.content || '',
+    replies: (c.replies && c.replies.items)
+      ? c.replies.items.map(r => ({
+          content: r.content || '',
+          author:  r.authorName || ''
+        }))
+      : []
+  }));
+}
+
+// When searching for the replacement after a rewrite, there may be
+// multiple matches (the replacement phrase may have existed elsewhere
+// too). We don't have position info so the best we can do is return the
+// first. Named so that if we later want to be smarter we know where to
+// change.
+function pickClosestMatch(items) {
+  return items[0];
 }
 
 async function applyInserts(inserts) {
