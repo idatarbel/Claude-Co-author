@@ -5,7 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v18';
+const BUILD_VERSION        = 'v19';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
@@ -22,7 +22,12 @@ Office.onReady(async info => {
 
   // Surface the build we're running so there's never any ambiguity.
   const buildEl = document.getElementById('build-tag');
-  if (buildEl) buildEl.textContent = BUILD_VERSION;
+  if (buildEl) {
+    buildEl.textContent = BUILD_VERSION;
+    buildEl.title = 'Click to force-reload the task pane (bypasses cache)';
+    buildEl.style.cursor = 'pointer';
+    buildEl.onclick = forceReload;
+  }
 
   // Self-update: if build-version.txt on the server says we're stale,
   // reload the page once. Guarded by sessionStorage to avoid loops.
@@ -64,16 +69,37 @@ async function autoUpdateCheck() {
 
     const key = 'claudeReloadedTo:' + latest;
     if (sessionStorage.getItem(key)) {
-      // Already tried to reload into this version and still don't see it —
-      // probably a deeper cache. Don't loop; just log.
+      // Already tried to force-load this version and the browser still
+      // served us stale code. Don't loop forever — surface a visible
+      // warning so the user knows to manually clear cache or use the
+      // Force update button.
       console.warn(`Build ${BUILD_VERSION} but server reports ${latest}; reload did not help.`);
+      if (typeof log === 'function') {
+        log('err',
+          `Build ${latest} is available on the server but your browser is still serving build ${BUILD_VERSION}. ` +
+          `Click the "Force update" button in the header, or open the document in a new InPrivate / Incognito window.`);
+      }
       return;
     }
     sessionStorage.setItem(key, '1');
-    console.log(`Build ${BUILD_VERSION} is stale; server has ${latest}. Reloading.`);
-    window.location.reload();
+    console.log(`Build ${BUILD_VERSION} is stale; server has ${latest}. Force-reloading with cache-bust.`);
+    forceReload();
   } catch (e) {
     // Network/fetch failures are non-fatal — just skip the check.
+  }
+}
+
+// Hard reload that bypasses HTTP cache as aggressively as the browser
+// will let us: appends a fresh timestamp query param so the URL is
+// strictly new, which forces the browser to re-fetch every asset the
+// page references.
+function forceReload() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('_cb', String(Date.now()));
+    window.location.replace(url.toString());
+  } catch (e) {
+    window.location.reload();
   }
 }
 
