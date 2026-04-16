@@ -5,12 +5,20 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v25';
+const BUILD_VERSION        = 'v26';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
 const STORAGE_KEY_API_KEY  = 'claudeApiKey';
 const STORAGE_KEY_AUTOPOLL = 'claudeAutoPoll';
+const STORAGE_KEY_MODEL    = 'claudeModel';
+const DEFAULT_MODEL        = 'claude-sonnet-4-5';
+const PRESET_MODELS        = new Set([
+  'claude-sonnet-4-5',
+  'claude-sonnet-4-6',
+  'claude-opus-4-6',
+  'claude-haiku-4-5-20251001'
+]);
 
 let pollIntervalId = null;
 let isProcessing   = false;
@@ -39,6 +47,12 @@ Office.onReady(async info => {
   document.getElementById('clear-key-btn').onclick     = clearApiKey;
   document.getElementById('process-now-btn').onclick   = onProcessNowClick;
   document.getElementById('auto-poll-toggle').onchange = onAutoPollToggle;
+  document.getElementById('save-model-btn').onclick    = saveModel;
+  document.getElementById('model-select').onchange     = onModelSelectChange;
+
+  // Populate the model selector from stored preference.
+  const savedModel = (await getStoredValue(STORAGE_KEY_MODEL)) || DEFAULT_MODEL;
+  renderModelView(savedModel);
 
   // Restore saved API key and auto-poll preference
   const savedKey = await getStoredValue(STORAGE_KEY_API_KEY);
@@ -124,6 +138,65 @@ async function clearApiKey() {
   await setStoredValue(STORAGE_KEY_API_KEY, '');
   renderKeyView(null);
   log('info', 'API key removed.');
+}
+
+// ─── Model Selection ──────────────────────────────────────
+
+async function getCurrentModel() {
+  const stored = await getStoredValue(STORAGE_KEY_MODEL);
+  return (stored && stored.trim()) || DEFAULT_MODEL;
+}
+
+async function saveModel() {
+  const select = document.getElementById('model-select');
+  const customInput = document.getElementById('model-custom-input');
+  let model;
+  if (select.value === '__custom__') {
+    model = customInput.value.trim();
+    if (!model) {
+      setModelStatus('err', 'Enter a model ID.');
+      return;
+    }
+  } else {
+    model = select.value;
+  }
+  await setStoredValue(STORAGE_KEY_MODEL, model);
+  setModelStatus('ok', 'Saved');
+  log('ok', `Model set to "${model}".`);
+}
+
+function onModelSelectChange() {
+  const select = document.getElementById('model-select');
+  const customInput = document.getElementById('model-custom-input');
+  if (select.value === '__custom__') {
+    customInput.classList.remove('hidden');
+    customInput.focus();
+  } else {
+    customInput.classList.add('hidden');
+  }
+  setModelStatus('', '');
+}
+
+function renderModelView(model) {
+  const select = document.getElementById('model-select');
+  const customInput = document.getElementById('model-custom-input');
+  if (PRESET_MODELS.has(model)) {
+    select.value = model;
+    customInput.value = '';
+    customInput.classList.add('hidden');
+  } else {
+    select.value = '__custom__';
+    customInput.value = model;
+    customInput.classList.remove('hidden');
+  }
+  setModelStatus('', '');
+}
+
+function setModelStatus(level, message) {
+  const el = document.getElementById('model-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'status' + (level ? ' ' + level : '');
 }
 
 async function onProcessNowClick() {

@@ -5,9 +5,9 @@
 // ============================================================
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
-const CLAUDE_MODEL   = 'claude-sonnet-4-5';
 
-async function callClaude(apiKey, instruction, docContent, quotedText, docName, threadHistory, placeholders) {
+async function callClaude(apiKey, model, instruction, docContent, quotedText, docName, threadHistory, placeholders) {
+  model = model || 'claude-sonnet-4-5';
   docContent   = docContent   || '';
   docName      = docName      || 'Untitled';
   quotedText   = quotedText   || '';
@@ -115,7 +115,7 @@ Rules:
           'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify({
-          model:      CLAUDE_MODEL,
+          model:      model,
           max_tokens: 4000,
           system:     systemPrompt,
           tools:      [{ type: 'web_search_20250305', name: 'web_search' }],
@@ -148,8 +148,8 @@ Rules:
           log('err', `${msg}\nLikely cause: API key is invalid, expired, or missing billing setup. Check console.anthropic.com → API Keys and Billing.`);
         } else if (response.status === 429) {
           log('err', `${msg}\nLikely cause: rate limit or credit exhausted. Check console.anthropic.com → Usage.`);
-        } else if (response.status === 400 && /model/i.test(errDetail)) {
-          log('err', `${msg}\nLikely cause: the model "${CLAUDE_MODEL}" isn't available on this account.`);
+        } else if ((response.status === 400 || response.status === 404) && /model/i.test(errDetail)) {
+          log('err', `${msg}\nLikely cause: the model "${model}" isn't available on this account. Pick a different model in the Model dropdown.`);
         } else {
           log('err', msg);
         }

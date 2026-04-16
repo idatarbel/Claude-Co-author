@@ -5,7 +5,7 @@
 // ============================================================
 
 const CLAUDE_API_URL   = 'https://api.anthropic.com/v1/messages';
-const CLAUDE_MODEL     = 'claude-sonnet-4-5';
+const DEFAULT_MODEL    = 'claude-sonnet-4-5';
 const COMMENT_TRIGGER  = '@claude';
 const REPLY_MARKER     = '🤖 Claude:';
 const LOOKBACK_MINUTES = 10;
@@ -22,11 +22,19 @@ function onOpen(e) {
       .addItem('⏹ Stop auto-polling', 'removeTrigger')
       .addSeparator()
       .addItem('🔑 Set API Key', 'promptApiKey')
+      .addItem('🤖 Set Claude model', 'promptModel')
       .addItem('📊 View polling status', 'showStatus')
       .addToUi();
   } catch(e) {
     // Not running inside a Google Doc — skip UI setup
   }
+}
+
+// Returns the currently-configured Claude model id. Falls back to the
+// default if the user hasn't picked one via promptModel().
+function getModel() {
+  const stored = PropertiesService.getUserProperties().getProperty('claudeModel');
+  return (stored && stored.trim()) || DEFAULT_MODEL;
 }
 
 function onInstall(e) {

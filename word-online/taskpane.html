@@ -8,7 +8,7 @@
   <meta http-equiv="Expires" content="0" />
   <title>Claude Co-author</title>
   <script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=25" />
+  <link rel="stylesheet" href="taskpane.css?v=26" />
 </head>
 <body>
   <main id="app">
@@ -47,6 +47,25 @@
       </div>
     </section>
 
+    <section class="card" id="model-card">
+      <h2>Model</h2>
+      <p class="muted">
+        Pick which Claude model processes comments. Change this if Anthropic deprecates a model and the tool stops working.
+      </p>
+      <select id="model-select">
+        <option value="claude-sonnet-4-5">Sonnet 4.5 — recommended</option>
+        <option value="claude-sonnet-4-6">Sonnet 4.6 — latest Sonnet</option>
+        <option value="claude-opus-4-6">Opus 4.6 — most capable</option>
+        <option value="claude-haiku-4-5-20251001">Haiku 4.5 — fastest, cheapest</option>
+        <option value="__custom__">Custom…</option>
+      </select>
+      <input type="text" id="model-custom-input" class="hidden" placeholder="e.g., claude-sonnet-4-5-20250929" autocomplete="off" />
+      <div class="row">
+        <button id="save-model-btn">Save model</button>
+        <span id="model-status" class="status"></span>
+      </div>
+    </section>
+
     <section class="card">
       <h2>Process Comments</h2>
       <p class="muted">Scans this document for unresolved <code>@claude</code> comments and processes them.</p>
@@ -69,7 +88,7 @@
     </footer>
   </main>
 
-  <script src="Claude.js?v=25"></script>
-  <script src="Code.js?v=25"></script>
+  <script src="Claude.js?v=26"></script>
+  <script src="Code.js?v=26"></script>
 </body>
 </html>
