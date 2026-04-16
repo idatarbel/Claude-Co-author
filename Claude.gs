@@ -1,89 +1,152 @@
 // ============================================================
 // Claude Co-author — Claude.gs
-// Calls the Anthropic API and returns a structured action.
+// Calls the Anthropic API with web search and returns actions.
 // ============================================================
 
-/**
- * Calls Claude with the document context and the user's instruction.
- *
- * Returns an object like:
- *   { action: "edit", edit: { original_text, replacement_text }, reply: "..." }
- *   { action: "reply_only", reply: "..." }
- * or null on error.
- */
-function callClaude(apiKey, instruction, docContent, quotedText, docName) {
+function callClaude(apiKey, instruction, docContent, quotedText, docName, threadHistory, placeholders) {
+  docContent   = docContent   || '';
+  docName      = docName      || 'Untitled';
+  quotedText   = quotedText   || '';
+  placeholders = placeholders || [];
+
   const systemPrompt = `You are Claude, an AI writing assistant embedded in a Google Doc called "${docName}".
-The user has written a comment in the document beginning with "@Claude:" followed by an instruction for you.
 
-You have access to the full document text. The comment may also be anchored to a specific passage.
+The user has left a comment with an instruction. Execute it fully and directly — do not ask permission, do not hedge, do not suggest the user do the work themselves.
 
-Your task is to fulfill the instruction. You can either:
-1. Respond with information, feedback, or analysis only (reply_only).
-2. Make a specific text edit AND explain what you did (edit).
+You have web search available. Use it to look up any facts, names, dates, or information you are uncertain about before responding.
 
-When making an edit, "original_text" must be an exact verbatim substring of the document — copy it character-for-character. Keep it as short as possible while still being uniquely locatable. "replacement_text" is the full new text to replace it with.
-
-RESPOND ONLY WITH A VALID JSON OBJECT — no preamble, no markdown fences:
+Respond with a single JSON object in this exact format:
 {
   "action": "edit" | "reply_only",
-  "edit": {
-    "original_text": "exact verbatim text from document",
-    "replacement_text": "the new replacement text"
-  },
-  "reply": "Concise reply to post on the comment. If you edited, briefly describe what changed and why."
+  "edits": [
+    { "original_text": "exact text from document to replace", "replacement_text": "new text" }
+  ],
+  "comments_to_add": [
+    { "quoted_text": "exact text in document to anchor the comment to", "comment": "comment text to add" }
+  ],
+  "reply": "What you did, concisely."
 }
 
-If action is "reply_only", set "edit" to null.
-Keep "reply" under 300 characters — clear and direct.`;
+Rules:
+- "edits" is an array — return as many replacements as needed to fully complete the task
+- Only add an edit if you found REAL, VERIFIED information to replace the placeholder with
+- If you did NOT find real information for a placeholder: do NOT add an edit for it — leave it unchanged in the document
+- For every placeholder you could not fill with real information: add an entry to comments_to_add with the placeholder as quoted_text and a specific comment telling the user exactly what to research
+- "original_text" and "quoted_text" must be copied verbatim from the document
+- When placeholders are provided below, use those exact strings verbatim
+- If action is "reply_only", set both "edits" and "comments_to_add" to []`;
 
-  // Trim doc content to stay within context limits
   const maxDocChars = 12000;
-  const truncated   = docContent.length > maxDocChars;
-  const docSnippet  = docContent.substring(0, maxDocChars) + (truncated ? '\n[...document truncated for length...]' : '');
+  const docSnippet  = docContent.substring(0, maxDocChars) +
+    (docContent.length > maxDocChars ? '\n[...document truncated...]' : '');
+
+  let historyBlock = '';
+  if (threadHistory && threadHistory.length > 0) {
+    historyBlock = 'Comment thread so far:\n' +
+      threadHistory.map((msg, i) =>
+        `  [${i === 0 ? 'Original comment' : 'Reply ' + i}]: ${msg}`
+      ).join('\n');
+  }
+
+  let placeholderBlock = '';
+  if (placeholders.length > 0) {
+    placeholderBlock = 'Placeholders found in document (use these EXACT strings as original_text or quoted_text):\n' +
+      placeholders.map((p, i) => `  ${i + 1}. ${p}`).join('\n');
+  }
 
   const userMessage = [
     `Document content:\n---\n${docSnippet}\n---`,
-    quotedText ? `Text the comment is anchored to:\n"${quotedText}"` : '',
-    `@Claude: ${instruction}`
+    quotedText       ? `Text the comment is anchored to:\n"${quotedText}"` : '',
+    historyBlock     || '',
+    placeholderBlock || '',
+    `@claude: ${instruction}`
   ].filter(Boolean).join('\n\n');
 
-  let response;
-  try {
-    response = UrlFetchApp.fetch(CLAUDE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type':      'application/json',
-        'x-api-key':         apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      payload: JSON.stringify({
-        model:      CLAUDE_MODEL,
-        max_tokens: 1500,
-        system:     systemPrompt,
-        messages:   [{ role: 'user', content: userMessage }]
-      }),
-      muteHttpExceptions: true
-    });
-  } catch (e) {
-    console.error('UrlFetchApp error: ' + e.message);
+  let messages = [{ role: 'user', content: userMessage }];
+  let finalText = null;
+  const maxIterations = 5;
+
+  for (let i = 0; i < maxIterations; i++) {
+    let response;
+    try {
+      response = UrlFetchApp.fetch(CLAUDE_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type':      'application/json',
+          'x-api-key':         apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        payload: JSON.stringify({
+          model:      CLAUDE_MODEL,
+          max_tokens: 4000,
+          system:     systemPrompt,
+          tools:      [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages:   messages
+        }),
+        muteHttpExceptions: true
+      });
+    } catch (e) {
+      console.error('UrlFetchApp error: ' + e.message);
+      return null;
+    }
+
+    const status = response.getResponseCode();
+    if (status !== 200) {
+      console.error(`Claude API returned ${status}: ${response.getContentText()}`);
+      return null;
+    }
+
+    const data = JSON.parse(response.getContentText());
+    messages.push({ role: 'assistant', content: data.content });
+
+    if (data.stop_reason === 'end_turn') {
+      const textBlocks = data.content.filter(b => b.type === 'text');
+      const textBlock  = textBlocks[textBlocks.length - 1];
+      if (textBlock) finalText = textBlock.text.trim();
+      break;
+    }
+
+    if (data.stop_reason === 'tool_use') {
+      const hasToolResults = data.content.some(b =>
+        b.type === 'tool_result' || b.type === 'web_search_tool_result'
+      );
+      if (!hasToolResults) {
+        const toolResults = data.content
+          .filter(b => b.type === 'tool_use')
+          .map(b => ({ type: 'tool_result', tool_use_id: b.id, content: '' }));
+        if (toolResults.length > 0) {
+          messages.push({ role: 'user', content: toolResults });
+        }
+      }
+      continue;
+    }
+
+    const textBlocks = data.content.filter(b => b.type === 'text');
+    const textBlock  = textBlocks[textBlocks.length - 1];
+    if (textBlock) finalText = textBlock.text.trim();
+    break;
+  }
+
+  if (!finalText) {
+    console.error('No final text from Claude after tool loop');
     return null;
   }
 
-  const status = response.getResponseCode();
-  if (status !== 200) {
-    console.error(`Claude API returned ${status}: ${response.getContentText()}`);
-    return null;
-  }
-
   try {
-    const body = JSON.parse(response.getContentText());
-    let raw = body.content[0].text.trim();
+    const jsonMatch = finalText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('No JSON found in Claude response. Raw: ' + finalText);
+      return null;
+    }
+    const parsed = JSON.parse(jsonMatch[0]);
 
-    // Strip accidental markdown code fences
-    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    return JSON.parse(raw);
+    if (parsed.edit && !parsed.edits) parsed.edits = [parsed.edit];
+    if (!parsed.edits)           parsed.edits           = [];
+    if (!parsed.comments_to_add) parsed.comments_to_add = [];
+
+    return parsed;
   } catch (e) {
-    console.error('Failed to parse Claude response: ' + e.message);
+    console.error('Failed to parse Claude response: ' + e.message + '\nRaw: ' + finalText);
     return null;
   }
 }

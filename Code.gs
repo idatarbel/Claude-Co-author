@@ -1,6 +1,7 @@
 // ============================================================
 // Claude Co-author — Code.gs
 // Scans Google Docs for @claude comments and processes them.
+// Responds to @claude in the original comment OR any reply.
 // ============================================================
 
 const CLAUDE_API_URL   = 'https://api.anthropic.com/v1/messages';
@@ -32,7 +33,7 @@ function onInstall(e) {
   onOpen(e);
 }
 
-// ─── Manual Trigger (Menu Item) ────────────────────────────
+// ─── Manual Trigger ────────────────────────────────────────
 
 function processCurrentDoc() {
   const doc = DocumentApp.getActiveDocument();
@@ -42,42 +43,54 @@ function processCurrentDoc() {
   }
   const apiKey = getApiKey();
   if (!apiKey) {
-    DocumentApp.getUi().alert('❌ No API key set. Use Extensions > Claude Co-author > Set API Key first.');
+    DocumentApp.getUi().alert('❌ No API key set.');
     return;
   }
   const count = processDocById(doc.getId(), apiKey);
   DocumentApp.getUi().alert(
     count > 0
       ? `✅ Done! Processed ${count} @claude comment(s).`
-      : `ℹ️ No new @claude comments found in this document.`
+      : `ℹ️ No new @claude comments found.`
   );
 }
 
-// ─── Automatic Time Trigger (runs every 5 min) ─────────────
+// ─── Automatic Time Trigger ────────────────────────────────
 
 function processAllRecentDocs() {
-  const apiKey = getApiKey();
-  if (!apiKey) return;
-
-  const d = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000);
-  const since = Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
-  const query = `mimeType="application/vnd.google-apps.document" and modifiedDate > "${since}"`;
-
-  let files;
+  const lock = LockService.getScriptLock();
   try {
-    files = DriveApp.searchFiles(query);
-  } catch (e) {
-    console.error('Drive search failed: ' + e.message);
+    lock.waitLock(30000);
+  } catch(e) {
+    console.error('Could not acquire lock — another execution is in progress.');
     return;
   }
 
-  while (files.hasNext()) {
-    const file = files.next();
+  try {
+    const apiKey = getApiKey();
+    if (!apiKey) return;
+
+    const d = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000);
+    const since = Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+    const query = `mimeType="application/vnd.google-apps.document" and modifiedDate > "${since}"`;
+
+    let files;
     try {
-      processDocById(file.getId(), apiKey);
+      files = DriveApp.searchFiles(query);
     } catch (e) {
-      console.error(`Skipped doc ${file.getId()}: ${e.message}`);
+      console.error('Drive search failed: ' + e.message);
+      return;
     }
+
+    while (files.hasNext()) {
+      const file = files.next();
+      try {
+        processDocById(file.getId(), apiKey);
+      } catch (e) {
+        console.error(`Skipped doc ${file.getId()}: ${e.message}`);
+      }
+    }
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -91,6 +104,7 @@ function processDocById(docId, apiKey) {
       pageSize: 100
     });
   } catch (e) {
+    console.error('Comments fetch failed: ' + e.message);
     return 0;
   }
 
@@ -108,24 +122,44 @@ function processDocById(docId, apiKey) {
     return 0;
   }
 
+  const placeholders = extractPlaceholders(docText);
+
   let processedCount = 0;
 
   for (const comment of comments) {
     try {
-      if (shouldSkipComment(comment)) continue;
+      if (comment.resolved) continue;
 
-      const instruction = extractInstruction(comment.content);
+      const thread        = buildThread(comment);
+      const lastClaudeIdx = findLastClaudeMessage(thread);
+      if (lastClaudeIdx === -1) continue;
+
+      const messagesAfter = thread.slice(lastClaudeIdx + 1);
+      if (messagesAfter.some(m => m.startsWith(REPLY_MARKER))) continue;
+
+      const instruction = extractInstruction(thread[lastClaudeIdx]);
+      const history     = thread.slice(0, lastClaudeIdx);
       const quotedText  = (comment.quotedFileContent || {}).value || '';
 
-      const result = callClaude(apiKey, instruction, docText, quotedText, docName);
+      const result = callClaude(
+        apiKey, instruction, docText, quotedText, docName, history, placeholders
+      );
       if (!result) continue;
 
-      let replyText = REPLY_MARKER + ' ';
-      if (result.action === 'edit' && result.edit && result.edit.original_text) {
-        replyText += applyEdit(docId, result.edit, result.reply);
-      } else {
-        replyText += result.reply;
+      // Apply text edits
+      let editSummary = '';
+      if (result.edits && result.edits.length > 0) {
+        editSummary = '\n\n' + applyEdits(docId, result.edits);
       }
+
+      // Add new comments to the document
+      let commentSummary = '';
+      if (result.comments_to_add && result.comments_to_add.length > 0) {
+        const added = addDocComments(docId, result.comments_to_add);
+        commentSummary = `\n\n💬 ${added} research comment(s) added to document.`;
+      }
+
+      const replyText = REPLY_MARKER + ' ' + result.reply + editSummary + commentSummary;
 
       Drive.Replies.create(
         { content: replyText },
@@ -143,70 +177,154 @@ function processDocById(docId, apiKey) {
   return processedCount;
 }
 
-// ─── Helpers ───────────────────────────────────────────────
+// ─── Add New Comments to Document ─────────────────────────
 
-function shouldSkipComment(comment) {
-  if (comment.resolved) return true;
-
-  const content = (comment.content || '').trim();
-  if (!content.toLowerCase().startsWith(COMMENT_TRIGGER)) return true;
-
-  const replies = comment.replies || [];
-  if (replies.some(r => r.content && r.content.startsWith(REPLY_MARKER))) return true;
-
-  return false;
+function addDocComments(docId, commentsToAdd) {
+  let added = 0;
+  for (const c of commentsToAdd) {
+    if (!c.comment) continue;
+    try {
+      const commentBody = { content: c.comment };
+      // Anchor to quoted text if provided
+      if (c.quoted_text) {
+        commentBody.quotedFileContent = {
+          mimeType: 'text/plain',
+          value:    c.quoted_text
+        };
+      }
+      Drive.Comments.create(commentBody, docId, { fields: 'id' });
+      added++;
+    } catch(e) {
+      console.error('Failed to add comment: ' + e.message);
+    }
+  }
+  return added;
 }
 
-function extractInstruction(commentContent) {
-  // Remove @claude prefix then strip any leading non-alphanumeric characters
-  // (colon, comma, space, dash, etc.) so all these work:
-  // "@claude: fix this"  "@claude, fix this"  "@claudeFix this"  "@claude fix this"
-  const stripped = commentContent.substring(COMMENT_TRIGGER.length);
-  return stripped.replace(/^[^a-zA-Z0-9]+/, '').trim();
+// ─── Placeholder Extraction ────────────────────────────────
+
+function extractPlaceholders(text) {
+  const placeholders = [];
+  const prefixes = ['[VERIFY:', '[RESEARCH NEEDED:'];
+
+  for (const prefix of prefixes) {
+    let i = 0;
+    while (i < text.length) {
+      const start = text.indexOf(prefix, i);
+      if (start === -1) break;
+
+      let depth = 1;
+      let j = start + 1;
+      while (j < text.length && depth > 0) {
+        if (text[j] === '[') depth++;
+        else if (text[j] === ']') depth--;
+        j++;
+      }
+
+      if (depth === 0) {
+        const placeholder = text.substring(start, j);
+        if (!placeholders.includes(placeholder)) {
+          placeholders.push(placeholder);
+        }
+      }
+
+      i = start + 1;
+    }
+  }
+
+  return placeholders;
 }
 
-function applyEdit(docId, edit, claudeReply) {
+// ─── Thread Helpers ────────────────────────────────────────
+
+function buildThread(comment) {
+  const thread = [comment.content || ''];
+  (comment.replies || []).forEach(r => thread.push(r.content || ''));
+  return thread;
+}
+
+function findLastClaudeMessage(thread) {
+  for (let i = thread.length - 1; i >= 0; i--) {
+    if (thread[i].trim().toLowerCase().startsWith(COMMENT_TRIGGER)) return i;
+  }
+  return -1;
+}
+
+function extractInstruction(message) {
+  return message.substring(COMMENT_TRIGGER.length).replace(/^[^a-zA-Z0-9]+/, '').trim();
+}
+
+// ─── Edit Application via Docs REST API ───────────────────
+
+function applyEdits(docId, edits) {
+  if (!edits || edits.length === 0) return '';
+
+  const requests = edits
+    .filter(e => e.original_text && e.replacement_text)
+    .map(e => ({
+      replaceAllText: {
+        containsText: { text: e.original_text, matchCase: true },
+        replaceText:  e.replacement_text
+      }
+    }));
+
+  if (requests.length === 0) return '⚠️ No valid edits to apply.';
+
+  let result;
   try {
-    const doc  = DocumentApp.openById(docId);
-    const body = doc.getBody();
-    const orig = edit.original_text;
-    const repl = edit.replacement_text;
+    const response = UrlFetchApp.fetch(
+      `https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + ScriptApp.getOAuthToken(),
+          'Content-Type':  'application/json'
+        },
+        payload: JSON.stringify({ requests }),
+        muteHttpExceptions: true
+      }
+    );
 
-    const escapedOrig = escapeRegex(orig);
-    const escapedRepl = repl.replace(/\$/g, '$$$$');
-
-    const found = body.findText(escapedOrig);
-    if (!found) {
-      return claudeReply + '\n\n⚠️ Could not locate the target text to edit — please apply manually.';
+    const status = response.getResponseCode();
+    if (status !== 200) {
+      return `⚠️ Docs API error ${status}: ${response.getContentText()}`;
     }
 
-    body.replaceText(escapedOrig, escapedRepl);
-    return claudeReply + '\n\n✅ Edit applied: replaced the indicated text.';
-  } catch (e) {
-    return claudeReply + `\n\n⚠️ Edit failed (${e.message}) — please apply manually.`;
+    result = JSON.parse(response.getContentText());
+  } catch(e) {
+    return `⚠️ Request failed: ${e.message}`;
   }
+
+  const replies = result.replies || [];
+  let applied = 0;
+  let missed  = 0;
+  replies.forEach(r => {
+    const count = (r.replaceAllText && r.replaceAllText.occurrencesChanged) || 0;
+    if (count > 0) applied++;
+    else missed++;
+  });
+
+  let summary = `✅ ${applied} edit(s) applied.`;
+  if (missed > 0) summary += ` ⚠️ ${missed} string(s) not found in document.`;
+  return summary;
 }
 
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
+// ─── Debug Helper (delete after use) ──────────────────────
 
 function debugComments() {
   const apiKey = getApiKey();
   Logger.log('API key present: ' + !!apiKey);
 
-  const d = new Date(Date.now() - 60 * 60 * 1000); // last 60 minutes
+  const d = new Date(Date.now() - 60 * 60 * 1000);
   const since = Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
   const query = `mimeType="application/vnd.google-apps.document" and modifiedDate > "${since}"`;
-  
+
   const files = DriveApp.searchFiles(query);
   let fileCount = 0;
   while (files.hasNext()) {
     const file = files.next();
     fileCount++;
     Logger.log('Found doc: ' + file.getName() + ' (' + file.getId() + ')');
-    
     try {
       const resp = Drive.Comments.list(file.getId(), {
         fields: 'comments(id,content,resolved,replies(content),quotedFileContent)',
@@ -215,10 +333,11 @@ function debugComments() {
       const comments = resp.comments || [];
       Logger.log('  Comments found: ' + comments.length);
       comments.forEach(c => {
-        Logger.log('  Comment: ' + c.content + ' | resolved: ' + c.resolved);
+        Logger.log('  Comment: ' + c.content);
+        (c.replies || []).forEach((r, i) => Logger.log('    Reply ' + i + ': ' + r.content));
       });
     } catch(e) {
-      Logger.log('  ERROR fetching comments: ' + e.message);
+      Logger.log('  ERROR: ' + e.message);
     }
   }
   Logger.log('Total docs found: ' + fileCount);

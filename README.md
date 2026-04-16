@@ -1,6 +1,8 @@
 # Claude Co-author — Google Apps Script
 
-An always-on Claude integration for Google Docs. Add `@claude <instruction>` as a comment anywhere in any Google Doc, and Claude will automatically reply — and optionally edit the document — within 5 minutes.
+An always-on Claude integration for Google Docs. Add `@claude <instruction>` as a
+comment in any Google Doc and Claude will automatically reply, edit the document,
+and add new comments — all within 5 minutes.
 
 ---
 
@@ -8,15 +10,15 @@ An always-on Claude integration for Google Docs. Add `@claude <instruction>` as 
 
 1. You write a comment in any Google Doc starting with `@claude`
 2. A background trigger (every 5 min) scans all your recently active docs
-3. Claude receives the document content + the comment context
-4. Claude replies to the comment and optionally edits the document directly
-5. You see the reply thread on the comment, just like a human collaborator responded
+3. Claude searches the web if needed, then acts on your instruction
+4. Claude edits the document directly, adds new comments where needed, and
+   replies to your comment explaining what it did
 
 ---
 
 ## Comment Syntax
 
-All of the following formats work — `@claude` is case-insensitive and the separator after it is optional:
+`@claude` is case-insensitive and the separator after it is flexible:
 
 ```
 @claude: fix the grammar in this paragraph
@@ -27,43 +29,52 @@ All of the following formats work — `@claude` is case-insensitive and the sepa
 
 ---
 
+## What Claude Can Do
+
+- **Edit text** — replace, rewrite, fix, expand, or restructure any passage
+- **Answer questions** — give feedback, analysis, or explanations as a comment reply
+- **Backfill placeholders** — find and replace [VERIFY:...] tags with real information
+  using web search; add new document comments for anything it can't verify
+- **Continue a thread** — reply to Claude's reply with another @claude message and
+  it will respond in context, seeing the full conversation history
+
+---
+
 ## One-Time Setup
 
 ### Step 1 — Create the Script Project
 
 1. Go to https://script.google.com
-2. Click **New project**
-3. Name it **Claude Co-author**
+2. Click **New project** and name it **Claude Co-author**
 
 ### Step 2 — Add the Script Files
 
-#### appsscript.json
-- Click the gear icon in the left sidebar → check **"Show appsscript.json manifest file"**
-- Click `appsscript.json` in the file list
-- Replace the entire contents with the `appsscript.json` from this package
+**appsscript.json**
+- Click the gear icon in the left sidebar → check "Show appsscript.json manifest file"
+- Replace its entire contents with the `appsscript.json` from this package
 
-#### Code.gs
-- Click the existing `Code.gs` file
-- Replace its contents with `Code.gs` from this package
+**Code.gs**
+- Click the existing `Code.gs` file and replace its contents
 
-#### Claude.gs
-- Click **+** → Script → name it `Claude`
-- Paste the contents of `Claude.gs`
+**Claude.gs**
+- Click **+** → Script → name it `Claude` → paste contents of `Claude.gs`
 
-#### Triggers.gs
-- Click **+** → Script → name it `Triggers`
-- Paste the contents of `Triggers.gs`
+**Triggers.gs**
+- Click **+** → Script → name it `Triggers` → paste contents of `Triggers.gs`
 
-### Step 3 — Enable the Drive Advanced Service
+### Step 3 — Enable Advanced Services
 
-1. In the left sidebar, click **Services** (the + icon)
-2. Find **Drive API** (listed under D, not G) → select **v3** → click **Add**
+In the left sidebar click **Services** (+):
+1. Add **Drive API** — find under D, select v3, click Add
+2. Add **Google Docs API** — find under G, select v1, click Add
+
+> If saving appsscript.json gives a "duplicate service" error, remove the
+> `dependencies` block from appsscript.json — the Services UI already added it.
 
 ### Step 4 — Set Your API Key
 
-`promptApiKey` uses `DocumentApp.getUi()` which cannot run from the script editor
-directly — it only works inside an actual open Google Doc. For initial setup,
-use this temporary helper function instead:
+`promptApiKey` uses DocumentApp.getUi() which only works inside an open Google Doc,
+not from the script editor. Use this temporary helper instead:
 
 **4a.** Add this function temporarily to the bottom of `Triggers.gs`:
 
@@ -71,107 +82,103 @@ use this temporary helper function instead:
 function setApiKeyDirect() {
   PropertiesService.getUserProperties().setProperty(
     'claudeApiKey',
-    'sk-ant-YOUR-KEY-HERE'  // paste your full Anthropic API key here
+    'sk-ant-YOUR-KEY-HERE'  // paste your full key here
   );
   Logger.log('API key saved.');
 }
 ```
 
-**4b.** Replace `sk-ant-YOUR-KEY-HERE` with your actual key from https://console.anthropic.com
+**4b.** Replace `sk-ant-YOUR-KEY-HERE` with your key from https://console.anthropic.com
 
-**4c.** Open `Triggers.gs` in the editor — the function dropdown only shows functions
-from the currently open file
+**4c.** Open `Triggers.gs` in the editor (the dropdown only shows functions from the
+currently open file)
 
-**4d.** Select `setApiKeyDirect` from the function dropdown and click **Run**
+**4d.** Select `setApiKeyDirect` from the dropdown and click **Run**
 
-**4e.** Confirm you see `API key saved.` in the Execution log
+**4e.** Confirm "API key saved." in the Execution log
 
-**4f.** Delete the `setApiKeyDirect` function — you don't need it anymore
+**4f.** Delete the `setApiKeyDirect` function
 
 ### Step 5 — Start the Background Trigger
 
-**5a.** With `Triggers.gs` still open, select `setupTrigger` from the dropdown and click **Run**
+**5a.** With `Triggers.gs` open, select `setupTrigger` from the dropdown and click **Run**
 
-**5b.** Approve the permissions prompt. When Google warns "this app isn't verified",
-click **Advanced** → **Go to [project name] (unsafe)** — this is expected for any
-personal script and is safe since you are the developer.
+**5b.** When Google warns "this app isn't verified", click **Advanced** →
+**Go to [project name] (unsafe)** — expected for all personal scripts
 
-**5c.** Confirm you see `Auto-polling activated` in the Execution log
+**5c.** Confirm "Auto-polling activated" in the Execution log
 
 The trigger now runs permanently every 5 minutes, even when your browser is closed.
 
 ---
 
-## Usage
+## Running Immediately (Without Waiting 5 Minutes)
 
-In any Google Doc, add a comment with `@claude` followed by your instruction:
-
-```
-@claude rewrite this paragraph to be more concise
-@claude does this argument make logical sense?
-@claude add a transition sentence before this paragraph
-@claude fix grammar and punctuation throughout this section
-@claude summarize the key points here as bullet points
-```
-
-Claude will reply only for questions and feedback, or edit the document directly
-plus post a reply explaining what changed — depending on your instruction.
+Open `Code.gs` in the script editor, select `processAllRecentDocs` from the
+function dropdown, and click **Run**. This processes all pending @claude comments
+in any doc modified in the last 10 minutes right now.
 
 ---
 
-## Verifying the Trigger is Running
+## Verifying the Trigger is Active
 
-1. Go to https://script.google.com
-2. Open the Claude Co-author project
-3. Click the clock icon in the left sidebar (Triggers)
-4. You should see `processAllRecentDocs` listed with a time-based trigger
+1. Go to https://script.google.com → open Claude Co-author
+2. Click the clock icon in the left sidebar (Triggers)
+3. You should see `processAllRecentDocs` listed with a time-based trigger
 
 ---
 
 ## File Reference
 
-| File         | Purpose                                              |
-|--------------|------------------------------------------------------|
-| Code.gs      | Comment scanning, document editing, core logic       |
-| Claude.gs    | Anthropic API call and response parsing              |
-| Triggers.gs  | Time trigger management, API key storage, status     |
-| appsscript.json | OAuth scopes and Drive API v3 advanced service    |
+| File             | Purpose                                               |
+|------------------|-------------------------------------------------------|
+| Code.gs          | Comment scanning, placeholder extraction, edit logic  |
+| Claude.gs        | Anthropic API call, web search, response parsing      |
+| Triggers.gs      | Time trigger management, API key storage, status      |
+| appsscript.json  | OAuth scopes and advanced service declarations        |
 
 ---
 
 ## Troubleshooting
 
 **"Cannot call DocumentApp.getUi() from this context"**
-You ran a function directly from the script editor that requires a live Doc context.
-Use the temporary `setApiKeyDirect` workaround in Step 4 above. `setupTrigger` in
-this package already uses Logger.log instead of getUi() and runs fine from the editor.
+You ran promptApiKey or a menu function directly from the script editor. Use the
+temporary setApiKeyDirect workaround in Step 4. setupTrigger uses Logger.log and
+runs fine from the editor.
 
-**Function not showing in the dropdown**
-The dropdown only shows functions from the currently open file. Click the specific
-.gs file in the left sidebar first, then check the dropdown.
+**"Drive is not defined" or "Docs API error 403"**
+One or both advanced services are not enabled. Go to Services in the left sidebar
+and add Drive API v3 and Google Docs API v1.
 
-**"Google hasn't verified this app" warning**
-Expected for all personal scripts. Click Advanced → Go to [project name] (unsafe).
+**Function not in dropdown**
+The dropdown only shows functions from the currently open file. Click the correct
+.gs file in the left sidebar first.
 
-**Duplicate Drive service error when saving appsscript.json**
-Remove the `dependencies` block from appsscript.json. The Services UI already added
-it automatically and the manifest doesn't need it too.
+**"Google hasn't verified this app"**
+Expected for personal scripts. Click Advanced → Go to [project name] (unsafe).
+
+**Duplicate Drive service error**
+Remove the `dependencies` block from appsscript.json.
 
 **Comment not being picked up**
-- Confirm the comment starts with @claude (any capitalization)
-- The file must be a native Google Doc, not a .docx opened in Drive.
-  Go to File → Save as Google Docs to convert it first.
-- Run `processAllRecentDocs` directly from the editor to trigger immediately.
+- The file must be a native Google Doc — not a .docx. Use File → Save as Google Docs.
+- Confirm the comment starts with @claude (any capitalization).
+- Run processAllRecentDocs manually for immediate processing.
 
-**Claude replied but didn't apply the edit**
-Claude notes in its reply when it couldn't locate the target text. Rephrase your
-instruction quoting more specific text from the document.
+**Edits applied but wrong text replaced**
+Claude uses the exact strings from the document as search keys. If the document
+was edited between Claude reading it and applying the edit, the string may no
+longer match. Just re-run.
+
+**0 edits applied / string not found**
+The text Claude targeted may span a paragraph break. Reply to the comment with a
+more specific instruction targeting a shorter, single-paragraph passage.
 
 ---
 
 ## Security Notes
 
-- Your API key is stored in PropertiesService.getUserProperties() — tied to your
-  Google account, not visible in the script code, not shared with anyone.
-- The script only accesses documents in your own Google Drive.
-- No data is sent anywhere except the Anthropic API using your own key.
+- API key stored in PropertiesService.getUserProperties() — tied to your Google
+  account, not visible in code, not shared with anyone
+- Script only accesses documents in your own Google Drive
+- No data sent anywhere except the Anthropic API using your own key
