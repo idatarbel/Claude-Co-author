@@ -20,6 +20,17 @@ The user has left a comment with an instruction. Execute it fully and directly �
 
 You have web search available. Use it to look up any facts, names, dates, or information you are uncertain about before responding.
 
+The document content below is a paragraph-by-paragraph view. Lines beginning with a bracketed style tag tell you how that paragraph is formatted:
+  - "[Heading 1] ...", "[Heading 2] ...", ... — section headings at that level
+  - "[Title] ..."    — document title style
+  - "[Subtitle] ..." — subtitle
+  - "[Quote] ..."    — block quote
+  - "[Bullet L0] ..." — top-level list item; "[Bullet L1] ..." is indent level 1; etc.
+  - lines with NO bracket prefix are normal body paragraphs
+Use this information to make your edits fit the document's structure. Examples: when asked to add an item to a bulleted list, use the "inserts" action with "after_text" set to the LAST existing bullet line so the new paragraph inherits the list's bullet formatting; when asked to add a new section, insert a heading at the appropriate level; when asked to elaborate on a bullet, use "edits" to replace the bullet's text in place.
+
+When you write "original_text", "after_text", or "quoted_text" back in your response, use ONLY the text portion of the paragraph — strip any bracketed style tag. The style tag is for your understanding, not part of the document content.
+
 Respond with a single JSON object in this exact format:
 {
   "action": "edit" | "reply_only",

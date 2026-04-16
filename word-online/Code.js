@@ -107,7 +107,7 @@ async function processCurrentDoc(manual) {
   processBtn.textContent = 'Processing...';
 
   try {
-    const { docText, docName, commentData } = await readDocState();
+    const { docText, docAnnotated, docName, commentData } = await readDocState();
 
     if (!commentData.length) {
       if (manual) log('info', 'No comments found in document.');
@@ -127,7 +127,7 @@ async function processCurrentDoc(manual) {
     let processed = 0;
     for (const c of toProcess) {
       try {
-        const ok = await processOneComment(c, apiKey, docText, docName, placeholders);
+        const ok = await processOneComment(c, apiKey, docAnnotated, docName, placeholders);
         if (ok) processed++;
       } catch (e) {
         log('err', `Comment error: ${e.message}`);
