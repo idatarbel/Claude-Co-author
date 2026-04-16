@@ -34,6 +34,7 @@ Rules:
 - For every placeholder you could not fill with real information: add an entry to comments_to_add with the placeholder as quoted_text and a specific comment telling the user exactly what to research
 - "original_text" and "quoted_text" must be copied verbatim from the document
 - When placeholders are provided below, use those exact strings verbatim
+- replacement_text must be plain prose only — no markdown (**bold**, _italic_), no citation tags (<cite>), no HTML tags of any kind
 - If action is "reply_only", set both "edits" and "comments_to_add" to []`;
 
   const maxDocChars = 12000;

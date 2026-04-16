@@ -146,13 +146,11 @@ function processDocById(docId, apiKey) {
       );
       if (!result) continue;
 
-      // Apply text edits
       let editSummary = '';
       if (result.edits && result.edits.length > 0) {
         editSummary = '\n\n' + applyEdits(docId, result.edits);
       }
 
-      // Add new comments to the document
       let commentSummary = '';
       if (result.comments_to_add && result.comments_to_add.length > 0) {
         const added = addDocComments(docId, result.comments_to_add);
@@ -185,7 +183,6 @@ function addDocComments(docId, commentsToAdd) {
     if (!c.comment) continue;
     try {
       const commentBody = { content: c.comment };
-      // Anchor to quoted text if provided
       if (c.quoted_text) {
         commentBody.quotedFileContent = {
           mimeType: 'text/plain',
@@ -256,6 +253,18 @@ function extractInstruction(message) {
 
 // ─── Edit Application via Docs REST API ───────────────────
 
+function sanitizeReplacement(text) {
+  return text
+    .replace(/<cite[^>]*>/gi, '')
+    .replace(/<\/cite>/gi, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/_(.*?)_/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+}
+
 function applyEdits(docId, edits) {
   if (!edits || edits.length === 0) return '';
 
@@ -264,7 +273,7 @@ function applyEdits(docId, edits) {
     .map(e => ({
       replaceAllText: {
         containsText: { text: e.original_text, matchCase: true },
-        replaceText:  e.replacement_text
+        replaceText:  sanitizeReplacement(e.replacement_text)
       }
     }));
 
