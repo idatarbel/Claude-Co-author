@@ -158,21 +158,31 @@ async function processCurrentDoc(manual) {
   }
 }
 
-// Read document text, name, and comment tree in one Word.run pass.
+// Read document text, comment tree, and an annotated paragraph-by-paragraph
+// view (with style + list info) in one Word.run pass.
 async function readDocState() {
   return Word.run(async context => {
-    const body     = context.document.body;
-    const comments = body.getComments();
-    const props    = context.document.properties;
+    const body       = context.document.body;
+    const comments   = body.getComments();
+    const props      = context.document.properties;
+    const paragraphs = body.paragraphs;
 
     body.load('text');
     props.load('title');
+    paragraphs.load('items/text,items/styleBuiltIn');
     comments.load('items/id,items/content,items/resolved,items/authorName,items/replies/items/id,items/replies/items/content,items/replies/items/authorName');
     await context.sync();
 
+    // List membership is a navigation property; load per paragraph.
+    for (const p of paragraphs.items) {
+      p.listItemOrNullObject.load('level');
+    }
+    await context.sync();
+
+    const docAnnotated = paragraphs.items.map(p => annotateParagraph(p)).join('\n');
+
     const commentData = [];
     for (const c of comments.items) {
-      // Pull anchored range text separately (getRange is a method, not a loaded prop)
       const range = c.getRange();
       range.load('text');
       await context.sync();
@@ -190,11 +200,33 @@ async function readDocState() {
     }
 
     return {
-      docText:     body.text || '',
-      docName:     props.title || 'Untitled',
-      commentData: commentData
+      docText:      body.text || '',
+      docAnnotated: docAnnotated,
+      docName:      props.title || 'Untitled',
+      commentData:  commentData
     };
   });
+}
+
+// Format one paragraph as "[Style tag] text" for Claude's context window.
+// Only prefixes structurally interesting paragraphs (headings, titles, list
+// items); normal body paragraphs pass through unchanged.
+function annotateParagraph(p) {
+  const text    = p.text || '';
+  const builtIn = p.styleBuiltIn || '';
+
+  if (p.listItemOrNullObject && !p.listItemOrNullObject.isNullObject) {
+    return `[Bullet L${p.listItemOrNullObject.level}] ${text}`;
+  }
+
+  const headingMatch = /^Heading(\d)$/.exec(builtIn);
+  if (headingMatch) return `[Heading ${headingMatch[1]}] ${text}`;
+
+  if (builtIn === 'Title')    return `[Title] ${text}`;
+  if (builtIn === 'Subtitle') return `[Subtitle] ${text}`;
+  if (builtIn === 'Quote')    return `[Quote] ${text}`;
+
+  return text;
 }
 
 // Decide whether this comment has a @claude message awaiting a response.
