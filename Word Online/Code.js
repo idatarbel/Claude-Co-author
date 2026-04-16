@@ -216,13 +216,18 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
     editSummary = '\n\n' + await applyEdits(result.edits);
   }
 
+  let insertSummary = '';
+  if (result.inserts && result.inserts.length > 0) {
+    insertSummary = '\n\n' + await applyInserts(result.inserts);
+  }
+
   let commentSummary = '';
   if (result.comments_to_add && result.comments_to_add.length > 0) {
     const added = await addDocComments(result.comments_to_add);
     commentSummary = `\n\n\uD83D\uDCAC ${added} research comment(s) added to document.`;
   }
 
-  const replyText = REPLY_MARKER + ' ' + sanitizeReplacement(result.reply) + editSummary + commentSummary;
+  const replyText = REPLY_MARKER + ' ' + sanitizeReplacement(result.reply) + editSummary + insertSummary + commentSummary;
   await replyToComment(c.id, replyText);
   return true;
 }
@@ -233,17 +238,26 @@ async function applyEdits(edits) {
   const valid = edits.filter(e => e.original_text && e.replacement_text);
   if (valid.length === 0) return 'No valid edits to apply.';
 
-  let applied = 0;
-  let missed  = 0;
+  let applied      = 0;
+  let missed       = 0;
+  let skipped      = 0;
+  const missedTexts = [];
 
   await Word.run(async context => {
     for (const edit of valid) {
+      // search() can't match across paragraph breaks; skip multi-line edits.
+      if (/\r|\n/.test(edit.original_text)) {
+        skipped++;
+        missedTexts.push('(multi-line edit skipped) ' + edit.original_text.split(/\r?\n/)[0]);
+        continue;
+      }
       const results = context.document.body.search(edit.original_text, { matchCase: true });
       results.load('items');
       await context.sync();
 
       if (results.items.length === 0) {
         missed++;
+        missedTexts.push(edit.original_text);
         continue;
       }
       // Replace only the first match to avoid clobbering identical text elsewhere.
@@ -253,8 +267,68 @@ async function applyEdits(edits) {
     await context.sync();
   });
 
+  if (missedTexts.length > 0) {
+    log('err', 'Not found in document:\n  ' + missedTexts.map(t => `"${t.substring(0, 80)}"`).join('\n  '));
+  }
+
   let summary = `\u2705 ${applied} edit(s) applied.`;
-  if (missed > 0) summary += ` \u26A0\uFE0F ${missed} string(s) not found in document.`;
+  if (missed  > 0) summary += ` \u26A0\uFE0F ${missed} string(s) not found.`;
+  if (skipped > 0) summary += ` \u26A0\uFE0F ${skipped} multi-line edit(s) skipped — use "inserts" instead.`;
+  return summary;
+}
+
+async function applyInserts(inserts) {
+  const valid = inserts.filter(i =>
+    i.after_text &&
+    Array.isArray(i.new_paragraphs) &&
+    i.new_paragraphs.length > 0
+  );
+  if (valid.length === 0) return 'No valid inserts to apply.';
+
+  let inserted    = 0;
+  let missed      = 0;
+  const missedTexts = [];
+
+  await Word.run(async context => {
+    for (const ins of valid) {
+      if (/\r|\n/.test(ins.after_text)) {
+        missed++;
+        missedTexts.push('(multi-line anchor) ' + ins.after_text.split(/\r?\n/)[0]);
+        continue;
+      }
+      const results = context.document.body.search(ins.after_text, { matchCase: true });
+      results.load('items');
+      await context.sync();
+
+      if (results.items.length === 0) {
+        missed++;
+        missedTexts.push(ins.after_text);
+        continue;
+      }
+
+      // Walk up to the containing paragraph.
+      const paragraphs = results.items[0].paragraphs;
+      paragraphs.load('items');
+      await context.sync();
+
+      let anchorPara = paragraphs.items[paragraphs.items.length - 1];
+
+      for (const newText of ins.new_paragraphs) {
+        const clean = sanitizeReplacement(newText);
+        if (!clean) continue;
+        anchorPara = anchorPara.insertParagraph(clean, 'After');
+        await context.sync();
+        inserted++;
+      }
+    }
+  });
+
+  if (missedTexts.length > 0) {
+    log('err', 'Anchor not found for inserts:\n  ' + missedTexts.map(t => `"${t.substring(0, 80)}"`).join('\n  '));
+  }
+
+  let summary = `\u2795 ${inserted} paragraph(s) inserted.`;
+  if (missed > 0) summary += ` \u26A0\uFE0F ${missed} anchor(s) not found.`;
   return summary;
 }
 

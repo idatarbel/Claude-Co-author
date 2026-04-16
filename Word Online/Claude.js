@@ -26,6 +26,9 @@ Respond with a single JSON object in this exact format:
   "edits": [
     { "original_text": "exact text from document to replace", "replacement_text": "new text" }
   ],
+  "inserts": [
+    { "after_text": "exact single-paragraph text already in the document", "new_paragraphs": ["first new paragraph", "second new paragraph"] }
+  ],
   "comments_to_add": [
     { "quoted_text": "exact text in document to anchor the comment to", "comment": "comment text to add" }
   ],
@@ -33,15 +36,18 @@ Respond with a single JSON object in this exact format:
 }
 
 Rules:
-- "edits" is an array — return as many replacements as needed to fully complete the task
-- Only add an edit if you found REAL, VERIFIED information to replace the placeholder with
-- If you did NOT find real information for a placeholder: do NOT add an edit for it — leave it unchanged in the document
-- For every placeholder you could not fill with real information: add an entry to comments_to_add with the placeholder as quoted_text and a specific comment telling the user exactly what to research
-- "original_text" and "quoted_text" must be copied verbatim from the document
-- When placeholders are provided below, use those exact strings verbatim
-- replacement_text must be plain prose only — no markdown (**bold**, _italic_), no citation tags (<cite>), no HTML tags of any kind
-- When a comment is anchored to specific text and asks to "elaborate", "expand", "add detail", or similar — always use action "edit" to replace that text with an expanded version in the document, not reply_only
-- If action is "reply_only", set both "edits" and "comments_to_add" to []`;
+- Return as many entries in "edits", "inserts", and "comments_to_add" as needed to fully complete the task
+- Use "edits" ONLY for in-paragraph text replacements. "original_text" MUST be a single paragraph with NO newline characters. "replacement_text" must NOT contain newline characters either. Do not use edits to add or remove list items, bullets, or new lines.
+- Use "inserts" to add one or more NEW paragraphs (including new bullet points or list items) to the document. "after_text" is a single-paragraph string already in the document that anchors where to insert; each entry in "new_paragraphs" becomes its own new paragraph inserted after that anchor, in order. When adding an item to a bulleted or numbered list, use "inserts" with "after_text" set to the last existing item — the new paragraph will inherit the list formatting.
+- When inserting changes the count in a "Attendees (N):" or similar header, ALSO add an "edit" to update that header (that edit is a single-paragraph replacement, which is fine).
+- "original_text", "after_text", and "quoted_text" must be copied verbatim from the document. Match the exact text of a single paragraph — do not include bullet characters (Word renders bullets automatically) or paragraph breaks.
+- Only add an edit/insert if you found REAL, VERIFIED information to add or replace.
+- If you did NOT find real information for a placeholder: do NOT add an edit for it — leave it unchanged.
+- For every placeholder you could not fill with real information: add an entry to comments_to_add with the placeholder as quoted_text and a specific comment telling the user exactly what to research.
+- When placeholders are provided below, use those exact strings verbatim.
+- replacement_text and new_paragraphs must be plain prose only — no markdown (**bold**, _italic_), no citation tags (<cite>), no HTML tags of any kind.
+- When a comment is anchored to specific text and asks to "elaborate", "expand", "add detail", or similar — always use action "edit" to replace that text with an expanded version in the document, not reply_only.
+- If action is "reply_only", set "edits", "inserts", and "comments_to_add" to [].`;
 
   const maxDocChars = 12000;
   const docSnippet  = docContent.substring(0, maxDocChars) +
@@ -149,6 +155,7 @@ Rules:
 
     if (parsed.edit && !parsed.edits) parsed.edits = [parsed.edit];
     if (!parsed.edits)           parsed.edits           = [];
+    if (!parsed.inserts)         parsed.inserts         = [];
     if (!parsed.comments_to_add) parsed.comments_to_add = [];
 
     return parsed;
