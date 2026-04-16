@@ -5,7 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v23';
+const BUILD_VERSION        = 'v24';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
@@ -487,7 +487,7 @@ function isSafeInsert(i) {
 
 // ─── Word Document Mutations ──────────────────────────────
 
-async function applyEdits(edits) {
+async function applyEdits(edits, skipCommentId) {
   const valid = edits.filter(e => e.original_text && e.replacement_text);
   if (valid.length === 0) return 'No valid edits to apply.';
 
@@ -519,10 +519,12 @@ async function applyEdits(edits) {
 
       // Replace only the first match to avoid clobbering identical text
       // elsewhere. Snapshot any comments anchored to that range first so
-      // we can re-anchor them after the destructive replace.
+      // we can re-anchor them after the destructive replace. Skip the
+      // @claude comment we're currently processing so we don't destroy
+      // our own reply target by re-anchoring it with a new ID.
       const targetRange  = results.items[0];
       const replacement  = sanitizeReplacement(edit.replacement_text);
-      const savedComments = await snapshotCommentsOnRange(body, targetRange, context);
+      const savedComments = await snapshotCommentsOnRange(body, targetRange, context, skipCommentId);
 
       targetRange.insertText(replacement, 'Replace');
       await context.sync();
@@ -576,7 +578,11 @@ async function applyEdits(edits) {
 // Find every non-resolved comment whose anchor overlaps the given range.
 // Captures content + reply content so we can reconstruct the thread
 // after a destructive replace destroys the original anchor.
-async function snapshotCommentsOnRange(body, targetRange, context) {
+//
+// `skipCommentId` is the id of the @claude comment we are currently
+// responding to — we intentionally DO NOT re-anchor it because doing
+// so would give it a new id and orphan our reply target.
+async function snapshotCommentsOnRange(body, targetRange, context, skipCommentId) {
   const allComments = body.getComments();
   allComments.load('items/id,items/content,items/resolved');
   await context.sync();
@@ -590,6 +596,7 @@ async function snapshotCommentsOnRange(body, targetRange, context) {
   const comparisons = [];
   for (const comment of allComments.items) {
     if (comment.resolved) continue;
+    if (skipCommentId && comment.id === skipCommentId) continue; // don't re-anchor our own reply target
     const commentRange = comment.getRange();
     commentRange.load('text');
     const cmp = targetRange.compareLocationWith(commentRange);
@@ -830,7 +837,17 @@ async function replyToComment(commentId, replyText) {
     await context.sync();
 
     const target = comments.items.find(c => c.id === commentId);
-    if (!target) throw new Error(`Comment ${commentId} not found for reply.`);
+    if (!target) {
+      // The @claude comment we are replying to is gone — almost always
+      // because the edit replaced the text it was anchored to and Word
+      // deleted the comment instead of orphaning it. Surface a clear
+      // message so Claude's work is still visible even though the
+      // original comment thread couldn't be preserved.
+      log('err',
+        `Could not post reply to comment ${commentId} — it was removed by one of the edits. ` +
+        `Claude's response was:\n${replyText}`);
+      throw new Error(`Comment ${commentId} not found for reply (probably deleted by a replace edit).`);
+    }
 
     target.reply(replyText);
     await context.sync();
