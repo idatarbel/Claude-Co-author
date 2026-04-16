@@ -5,7 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
-const BUILD_VERSION        = 'v20';
+const BUILD_VERSION        = 'v21';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
@@ -172,10 +172,11 @@ async function processCurrentDoc(manual) {
 
   try {
     const state = await readDocState();
-    const docText      = state && state.docText      || '';
-    const docAnnotated = state && state.docAnnotated || state && state.docText || '';
-    const docName      = state && state.docName      || 'Untitled';
-    const commentData  = state && state.commentData  || [];
+    const docText       = state && state.docText       || '';
+    const docAnnotated  = state && state.docAnnotated  || state && state.docText || '';
+    const docName       = state && state.docName       || 'Untitled';
+    const commentData   = state && state.commentData   || [];
+    const paragraphMeta = state && state.paragraphMeta || [];
 
     if (!commentData.length) {
       if (manual) log('info', 'No comments found in document.');
@@ -209,7 +210,11 @@ async function processCurrentDoc(manual) {
     let processed = 0;
     for (const c of toProcess) {
       try {
-        const ok = await processOneComment(c, apiKey, docAnnotated, docName, placeholders);
+        // Build a per-comment view of the doc where the anchor paragraph
+        // is explicitly marked, so Claude can't confuse "near the comment"
+        // with other occurrences of similar text elsewhere in the doc.
+        const docForComment = buildDocForComment(paragraphMeta, c.anchorParagraphIds);
+        const ok = await processOneComment(c, apiKey, docForComment, docName, placeholders);
         if (ok) processed++;
       } catch (e) {
         log('err', `Comment error: ${e.message}`);
@@ -228,6 +233,12 @@ async function processCurrentDoc(manual) {
 
 // Read document text, comment tree, and an annotated paragraph-by-paragraph
 // view (with style + list info) in one Word.run pass.
+//
+// Also captures, per comment, the set of paragraph uniqueLocalIds that the
+// comment is anchored to. That lets processOneComment render a per-comment
+// annotated view where the anchor paragraph is explicitly marked, so
+// Claude knows exactly where in the document the user's instruction is
+// pointing (not just the quoted text, which can appear multiple times).
 async function readDocState() {
   return Word.run(async context => {
     const body       = context.document.body;
@@ -237,7 +248,7 @@ async function readDocState() {
 
     body.load('text');
     props.load('title');
-    paragraphs.load('items/text,items/styleBuiltIn');
+    paragraphs.load('items/text,items/styleBuiltIn,items/uniqueLocalId');
     comments.load('items/id,items/content,items/resolved,items/authorName,items/replies/items/id,items/replies/items/content,items/replies/items/authorName');
     await context.sync();
 
@@ -245,35 +256,72 @@ async function readDocState() {
     for (const p of paragraphs.items) {
       p.listItemOrNullObject.load('level');
     }
+
+    // Stage a load of each comment's anchor range + the uniqueLocalIds of
+    // the paragraphs the anchor sits in. These Range proxies are pinned
+    // so we don't need to re-call getRange later.
+    const commentRanges = comments.items.map(c => {
+      const r = c.getRange();
+      r.load('text');
+      r.paragraphs.load('items/uniqueLocalId');
+      return { comment: c, range: r };
+    });
     await context.sync();
 
-    const docAnnotated = paragraphs.items.map(p => annotateParagraph(p)).join('\n');
+    // Per-paragraph metadata we'll use to build per-comment views later.
+    const paragraphMeta = paragraphs.items.map(p => ({
+      id:         p.uniqueLocalId || '',
+      annotation: annotateParagraph(p)
+    }));
 
-    const commentData = [];
-    for (const c of comments.items) {
-      const range = c.getRange();
-      range.load('text');
-      await context.sync();
+    const docAnnotated = paragraphMeta.map(p => p.annotation).join('\n');
 
-      commentData.push({
-        id:        c.id,
-        content:   c.content || '',
-        resolved:  c.resolved || false,
-        replies:   (c.replies && c.replies.items) ? c.replies.items.map(r => ({
-          id:      r.id,
-          content: r.content || ''
-        })) : [],
-        quotedText: range.text || ''
-      });
-    }
+    const commentData = commentRanges.map(({ comment, range }) => {
+      const replies = (comment.replies && comment.replies.items)
+        ? comment.replies.items.map(r => ({ id: r.id, content: r.content || '' }))
+        : [];
+
+      const anchorIds = new Set(
+        (range.paragraphs && range.paragraphs.items)
+          ? range.paragraphs.items.map(p => p.uniqueLocalId).filter(Boolean)
+          : []
+      );
+
+      return {
+        id:                  comment.id,
+        content:             comment.content || '',
+        resolved:             comment.resolved || false,
+        replies:             replies,
+        quotedText:          range.text || '',
+        anchorParagraphIds:  anchorIds
+      };
+    });
 
     return {
-      docText:      body.text || '',
-      docAnnotated: docAnnotated,
-      docName:      props.title || 'Untitled',
-      commentData:  commentData
+      docText:       body.text || '',
+      docAnnotated:  docAnnotated,
+      docName:       props.title || 'Untitled',
+      paragraphMeta: paragraphMeta,
+      commentData:   commentData
     };
   });
+}
+
+// Render the annotated doc with a prominent marker on the paragraph(s)
+// the current comment is anchored to. If we couldn't identify the
+// anchor paragraphs (e.g. older Word build without uniqueLocalId), fall
+// back to the plain annotated view.
+function buildDocForComment(paragraphMeta, anchorParagraphIds) {
+  if (!paragraphMeta || paragraphMeta.length === 0) return '';
+  if (!anchorParagraphIds || anchorParagraphIds.size === 0) {
+    return paragraphMeta.map(p => p.annotation).join('\n');
+  }
+  return paragraphMeta.map(p => {
+    if (p.id && anchorParagraphIds.has(p.id)) {
+      return p.annotation + '   \u25C0\u25C0\u25C0 COMMENT ANCHORED HERE \u25C0\u25C0\u25C0';
+    }
+    return p.annotation;
+  }).join('\n');
 }
 
 // Format one paragraph as "[Style tag] text" for Claude's context window.

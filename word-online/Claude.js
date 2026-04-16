@@ -26,7 +26,9 @@ The document content below is a paragraph-by-paragraph view. Each line is ONE pa
   - "[Bullet L0] ..." — top-level list item; L1 is the next indent level; etc.
   - lines with no prefix are normal body paragraphs
 
-When you write "original_text", "after_text", or "quoted_text" back in your response, use ONLY the text portion of the paragraph — strip the bracketed tag.
+One paragraph will be marked with "◀◀◀ COMMENT ANCHORED HERE ◀◀◀" at the end of the line. That marker shows EXACTLY which paragraph the user's @claude comment is attached to. Unless the user's instruction explicitly references a different location ("edit the title", "update the Notes section", etc.), any edit or insert you make should target that anchored paragraph (or its immediate surroundings). Do not make changes elsewhere in the document just because the text looks similar.
+
+When you write "original_text", "after_text", or "quoted_text" back in your response, use ONLY the text portion of the paragraph — strip the bracketed tag AND the "◀◀◀ COMMENT ANCHORED HERE ◀◀◀" marker. The tag and marker are context for you; they are not in the actual document.
 
 HARD RULES (violating any of these corrupts the document):
 
