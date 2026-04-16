@@ -313,15 +313,20 @@ async function applyInserts(inserts) {
 
       let anchorPara = paragraphs.items[paragraphs.items.length - 1];
 
-      // Load the anchor's list info so new paragraphs can inherit bullet / numbering.
-      anchorPara.load('listOrNullObject/id,listItemOrNullObject/level');
-      await context.sync();
-
+      // Load list/list-item info with explicit per-proxy loads (more reliable
+      // in Word for the Web than the slash-path shorthand).
       const anchorList = anchorPara.listOrNullObject;
       const anchorItem = anchorPara.listItemOrNullObject;
+      anchorList.load('id');
+      anchorItem.load('level');
+      await context.sync();
+
       const anchorInList = !anchorList.isNullObject && !anchorItem.isNullObject;
       const listId = anchorInList ? anchorList.id    : null;
       const level  = anchorInList ? anchorItem.level : 0;
+
+      log('info', `Anchor "${ins.after_text.substring(0, 50)}" — ` +
+        (anchorInList ? `in list id=${listId} level=${level}` : 'not in a list'));
 
       for (const newText of ins.new_paragraphs) {
         const clean = sanitizeReplacement(newText);
@@ -331,17 +336,22 @@ async function applyInserts(inserts) {
         await context.sync();
 
         if (anchorInList) {
-          // Only attach if the new paragraph isn't already a list item (some
-          // Word builds auto-continue the list; attaching twice throws).
-          newPara.load('listItemOrNullObject');
+          // Check whether the new paragraph already joined the list on its
+          // own (some Word builds auto-continue lists; others don't).
+          const newItem = newPara.listItemOrNullObject;
+          newItem.load('level');
           await context.sync();
-          if (newPara.listItemOrNullObject.isNullObject) {
+
+          if (newItem.isNullObject) {
             try {
               newPara.attachToList(listId, level);
               await context.sync();
+              log('ok', `Attached "${clean.substring(0, 40)}" to list ${listId} level ${level}.`);
             } catch (e) {
-              log('err', 'Could not attach new paragraph to list: ' + e.message);
+              log('err', `attachToList failed for "${clean.substring(0, 40)}": ${e.message}`);
             }
+          } else {
+            log('info', `"${clean.substring(0, 40)}" auto-joined the list at level ${newItem.level}.`);
           }
         }
 
