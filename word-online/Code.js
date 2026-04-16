@@ -5,6 +5,7 @@
 // Mirrors Google Docs/Code.gs.
 // ============================================================
 
+const BUILD_VERSION        = 'v16';
 const COMMENT_TRIGGER      = '@claude';
 const REPLY_MARKER         = '\uD83E\uDD16 Claude:'; // 🤖 Claude:
 const POLL_INTERVAL_MS     = 5 * 60 * 1000;
@@ -18,6 +19,14 @@ let isProcessing   = false;
 
 Office.onReady(async info => {
   if (info.host !== Office.HostType.Word) return;
+
+  // Surface the build we're running so there's never any ambiguity.
+  const buildEl = document.getElementById('build-tag');
+  if (buildEl) buildEl.textContent = BUILD_VERSION;
+
+  // Self-update: if build-version.txt on the server says we're stale,
+  // reload the page once. Guarded by sessionStorage to avoid loops.
+  autoUpdateCheck();
 
   document.getElementById('save-key-btn').onclick      = saveApiKey;
   document.getElementById('change-key-btn').onclick    = () => showKeyEditView(true);
@@ -38,6 +47,35 @@ Office.onReady(async info => {
 
   log('info', 'Ready. Add @claude comments in the document and click Process now.');
 });
+
+// ─── Self-Update ──────────────────────────────────────────
+
+// Fetch build-version.txt from the server. If the reported version is
+// different from the bundled BUILD_VERSION, force a hard reload of the
+// task pane so stale cached JS stops being a problem. The sessionStorage
+// guard prevents a reload loop when the server version is also stale.
+async function autoUpdateCheck() {
+  try {
+    const url = './build-version.txt?_=' + Date.now();
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) return;
+    const latest = (await resp.text()).trim();
+    if (!latest || latest === BUILD_VERSION) return;
+
+    const key = 'claudeReloadedTo:' + latest;
+    if (sessionStorage.getItem(key)) {
+      // Already tried to reload into this version and still don't see it —
+      // probably a deeper cache. Don't loop; just log.
+      console.warn(`Build ${BUILD_VERSION} but server reports ${latest}; reload did not help.`);
+      return;
+    }
+    sessionStorage.setItem(key, '1');
+    console.log(`Build ${BUILD_VERSION} is stale; server has ${latest}. Reloading.`);
+    window.location.reload();
+  } catch (e) {
+    // Network/fetch failures are non-fatal — just skip the check.
+  }
+}
 
 // ─── UI Handlers ──────────────────────────────────────────
 
@@ -126,7 +164,7 @@ async function processCurrentDoc(manual) {
       return;
     }
 
-    log('info', `Processing ${toProcess.length} @claude comment(s) in "${docName}"... [build v15]`);
+    log('info', `Processing ${toProcess.length} @claude comment(s) in "${docName}"... [build ${BUILD_VERSION}]`);
 
     // Diagnostic: show Claude exactly what we are showing Claude.
     const annotatedPreview = (docAnnotated || '').substring(0, 2000);
