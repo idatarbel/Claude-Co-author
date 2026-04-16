@@ -437,9 +437,10 @@ function shouldProcessComment(c) {
 async function processOneComment(c, apiKey, docText, docName, placeholders) {
   const instruction = extractInstruction(c._thread[c._lastClaudeIdx]);
   const history     = c._thread.slice(0, c._lastClaudeIdx);
+  const model       = await getCurrentModel();
 
   const result = await callClaude(
-    apiKey, instruction, docText, c.quotedText, docName, history, placeholders
+    apiKey, model, instruction, docText, c.quotedText, docName, history, placeholders
   );
   if (!result) {
     log('err', 'No result from Claude for comment.');

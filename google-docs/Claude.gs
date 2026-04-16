@@ -79,7 +79,7 @@ Rules:
           'anthropic-version': '2023-06-01'
         },
         payload: JSON.stringify({
-          model:      CLAUDE_MODEL,
+          model:      getModel(),
           max_tokens: 4000,
           system:     systemPrompt,
           tools:      [{ type: 'web_search_20250305', name: 'web_search' }],
