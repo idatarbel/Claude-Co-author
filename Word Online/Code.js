@@ -139,7 +139,7 @@ async function processCurrentDoc(manual) {
 async function readDocState() {
   return Word.run(async context => {
     const body     = context.document.body;
-    const comments = context.document.getComments();
+    const comments = body.getComments();
     const props    = context.document.properties;
 
     body.load('text');
@@ -284,7 +284,7 @@ async function addDocComments(commentsToAdd) {
 
 async function replyToComment(commentId, replyText) {
   await Word.run(async context => {
-    const comments = context.document.getComments();
+    const comments = context.document.body.getComments();
     comments.load('items/id');
     await context.sync();
 
