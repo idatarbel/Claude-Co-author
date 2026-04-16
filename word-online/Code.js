@@ -397,7 +397,7 @@ async function processOneComment(c, apiKey, docText, docName, placeholders) {
 
   let editSummary = '';
   if (safeEdits.length > 0) {
-    editSummary = '\n\n' + await applyEdits(safeEdits);
+    editSummary = '\n\n' + await applyEdits(safeEdits, c.id);
   }
 
   let insertSummary = '';
