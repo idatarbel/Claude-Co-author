@@ -2,7 +2,7 @@
 
 Run from the repo root:
 
-    python "Word Online/assets/generate_icons.py"
+    python word-online/assets/generate_icons.py
 
 Produces icon-16.png, icon-32.png, icon-80.png in this directory.
 """
